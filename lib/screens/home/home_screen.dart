@@ -84,7 +84,7 @@ class HomeScreen extends StatelessWidget {
 					),
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFCCFBF1),
-						icono: const Icon(Icons.document_scanner_rounded, size: 40, color: Color(0xFF14B8A6)),
+						icono: const Icon(Icons.call_split, size: 40, color: Color(0xFF14B8A6)),
 						titulo: 'Dividir PDF',
 						descripcion: 'Divide un documento PDF en varios.',
 						onTap: () {
