@@ -57,7 +57,15 @@ class HomeScreen extends StatelessWidget {
 						),
 						titulo: 'Convertir Word a PDF',
 						descripcion: 'Convierte tus documentos de Word a formato PDF.',
-						onTap: () {},
+						onTap: () {
+							Navigator.push(
+								context,
+								MaterialPageRoute(builder: (context) => const WebView(
+									url: "https://www.ilovepdf.com/es/word_a_pdf",
+									titulo: 'Unir Archivos PDF'
+								)),
+							);
+						},
 					),
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFFFEDD5),
