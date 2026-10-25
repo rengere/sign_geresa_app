@@ -8,7 +8,6 @@ import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/data/github.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -88,7 +87,6 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	// LIMPIEZA DE RESTOS DE LA ACTUALIZACIÓN ANTERIOR
 	// ==========================================
 	Future<void> _limpiarRestos() async {
-		// Espera a que el proceso anterior termine de cerrarse.
 		await Future<void>.delayed(const Duration(seconds: 5));
 		try {
 			final carpeta = _carpetaApp;
@@ -113,9 +111,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			} else {
 				await lista.writeAsString(pendientes.join('\n'));
 			}
-		} catch (_) {
-			// La limpieza es opcional: si falla, se intenta en el próximo inicio.
-		}
+		} catch (_) {}
 	}
 
 	// ==========================================
@@ -154,7 +150,6 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 						: null;
 			});
 		} catch (_) {
-			// Sin internet o GitHub no responde: simplemente no se muestra el botón.
 		} finally {
 			_revisando = false;
 		}
@@ -188,28 +183,76 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 				backgroundColor: ctx.surfaceWhite,
 				surfaceTintColor: Colors.transparent,
 				shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ctx.radiusLg)),
-				title: Text('Nueva versión ${info.version}'),
+				// Tamaño estático del diálogo
 				content: SizedBox(
-					width: 420,
+					width: 450,
+					height: 400, 
 					child: Column(
 						mainAxisSize: MainAxisSize.min,
-						crossAxisAlignment: CrossAxisAlignment.start,
 						children: [
-							Text(
-								'Tienes la versión $_versionInstalada. La app se cerrará y se volverá a abrir sola al terminar.',
-								style: Theme.of(ctx).textTheme.bodyMedium,
+							// Icono superior
+							Container(
+								padding: const EdgeInsets.all(16),
+								decoration: BoxDecoration(
+									color: ctx.primaryPurple.withOpacity(0.1),
+									shape: BoxShape.circle,
+								),
+								child: Icon(Icons.system_update_rounded, size: 40, color: ctx.primaryPurple),
 							),
+							const SizedBox(height: 16),
+							Text(
+								'Nueva versión disponible',
+								style: Theme.of(ctx).textTheme.titleLarge,
+								textAlign: TextAlign.center,
+							),
+							const SizedBox(height: 8),
+							// Mostrar versiones (sin GitHub)
+							Container(
+								padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+								decoration: BoxDecoration(
+									color: ctx.surfaceGrey,
+									borderRadius: BorderRadius.circular(20),
+								),
+								child: Text(
+									'De la versión $_versionInstalada a la ${info.version}',
+									style: TextStyle(color: ctx.textGrey, fontSize: 13, fontWeight: FontWeight.w500),
+								),
+							),
+							const SizedBox(height: 16),
+							
+							// Notas de la versión con scroll
 							if (info.notas.isNotEmpty) ...[
-								const SizedBox(height: 16),
-								Text('Novedades', style: Theme.of(ctx).textTheme.titleSmall),
+								Align(
+									alignment: Alignment.centerLeft,
+									child: Text('Novedades', style: Theme.of(ctx).textTheme.titleSmall),
+								),
 								const SizedBox(height: 6),
-								ConstrainedBox(
-									constraints: const BoxConstraints(maxHeight: 180),
-									child: SingleChildScrollView(
-										child: Text(info.notas, style: Theme.of(ctx).textTheme.bodyMedium),
+								Expanded(
+									child: Container(
+										width: double.infinity,
+										padding: const EdgeInsets.all(12),
+										decoration: BoxDecoration(
+											color: ctx.surfaceGrey.withOpacity(0.3),
+											borderRadius: BorderRadius.circular(ctx.radiusSm),
+											border: Border.all(color: ctx.borderColor),
+										),
+										child: SingleChildScrollView(
+											child: Text(info.notas, style: Theme.of(ctx).textTheme.bodyMedium),
+										),
 									),
 								),
-							],
+							] else
+								const Spacer(),
+
+							// Icono de check al final
+							const SizedBox(height: 12),
+							Icon(Icons.check_circle_outline_rounded, color: Colors.green.shade400, size: 28),
+							const SizedBox(height: 8),
+							Text(
+								'La app se cerrará y reiniciará sola.',
+								style: TextStyle(color: ctx.textGrey, fontSize: 12),
+								textAlign: TextAlign.center,
+							),
 						],
 					),
 				),
@@ -225,7 +268,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	}
 
 	// ==========================================
-	// DESCARGAR E INSTALAR (sin scripts)
+	// DESCARGAR E INSTALAR
 	// ==========================================
 	Future<void> _instalar(_InfoActualizacion info) async {
 		if (kDebugMode) {
@@ -260,40 +303,33 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		final cambios = <_Cambio>[];
 
 		try {
-			// 1. Descargar
 			await _descargar(info.urlZip, zip, progreso);
 
-			// 2. Extraer (en otro hilo para no congelar la ventana)
 			etapa.value = 'Preparando archivos';
 			progreso.value = null;
 			await _borrarCarpeta(temporal);
 			await temporal.create(recursive: true);
 			await _extraerZip(zip.path, temporal.path);
 
-			// Si el zip trae una sola carpeta adentro, se usa esa como origen.
 			var origen = temporal;
 			final hijos = await temporal.list().toList();
 			if (hijos.length == 1 && hijos.first is Directory) {
 				origen = hijos.first as Directory;
 			}
 
-			// Seguridad: el paquete debe contener el ejecutable de la app.
 			final nombreExe = Platform.resolvedExecutable.split('\\').last;
 			if (!await File('${origen.path}\\$nombreExe').exists()) {
 				throw StateError('El paquete descargado no contiene $nombreExe.');
 			}
 
-			// 3. Reemplazar archivos (renombrando los viejos)
 			etapa.value = 'Instalando';
 			await _aplicar(origen, carpetaApp, cambios);
 
-			// 4. Guardar la lista de respaldos para borrarlos en el próximo inicio
 			final lista = File('$carpetaApp\\$_listaRespaldos');
 			final previos = await lista.exists() ? await lista.readAsLines() : <String>[];
 			final nuevos = cambios.where((c) => c.respaldo != null).map((c) => c.respaldo!);
 			await lista.writeAsString([...previos, ...nuevos].join('\n'));
 
-			// 5. Limpiar y reiniciar con la versión nueva
 			etapa.value = 'Reiniciando';
 			await _borrarCarpeta(temporal);
 			await _borrarArchivo(zip);
@@ -307,19 +343,16 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			await Future<void>.delayed(const Duration(milliseconds: 800));
 			exit(0);
 		} catch (e) {
-			// Si algo falló, se deshace todo y la app vieja sigue funcionando.
 			await _revertir(cambios);
 			await _borrarCarpeta(temporal);
 			await _borrarArchivo(zip);
 			_instalando = false;
 			if (!mounted) return;
-			Navigator.of(context, rootNavigator: true).pop(); // cierra el diálogo de progreso
+			Navigator.of(context, rootNavigator: true).pop();
 			await _mostrarFalla(_texto(e));
 		}
 	}
 
-	/// Mueve los archivos nuevos a la carpeta de la app.
-	/// Los archivos existentes se renombran (Windows permite renombrar un archivo en uso).
 	Future<void> _aplicar(Directory origen, String destino, List<_Cambio> cambios) async {
 		final nuevos = <File>[];
 		await for (final e in origen.list(recursive: true, followLinks: false)) {
@@ -363,7 +396,6 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		return candidato;
 	}
 
-	/// Deshace los cambios hechos hasta el momento del error.
 	Future<void> _revertir(List<_Cambio> cambios) async {
 		for (final c in cambios.reversed) {
 			try {
@@ -458,10 +490,9 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			);
 	}
 
-	/// Diálogo de respaldo: explica el problema y da el enlace para actualizar a mano.
+	/// Diálogo de respaldo: explica el problema y da las instrucciones.
 	Future<void> _mostrarFalla(String motivo) async {
 		if (!mounted) return;
-		const enlace = 'https://github.com/$_githubUsuario/$_githubRepo/releases/latest';
 		var copiado = false;
 
 		await showDialog<void>(
@@ -483,10 +514,8 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 									const SizedBox(height: 16),
 									Text('Puedes actualizar manualmente:', style: Theme.of(ctx).textTheme.titleSmall),
 									const SizedBox(height: 6),
-									Text('1. Abre este enlace en tu navegador y descarga "firmador-windows.zip".', style: Theme.of(ctx).textTheme.bodyMedium),
+									Text('1. Abre el enlace de descarga y descarga el archivo ".zip".', style: Theme.of(ctx).textTheme.bodyMedium),
 									const SizedBox(height: 4),
-									SelectableText(enlace, style: TextStyle(color: ctx.primaryPurple, fontSize: 13, fontWeight: FontWeight.w600)),
-									const SizedBox(height: 6),
 									Text('2. Extrae el zip en una carpeta propia, como Documentos o el Escritorio.', style: Theme.of(ctx).textTheme.bodyMedium),
 									const SizedBox(height: 4),
 									Text('3. Abre la aplicación desde esa carpeta nueva.', style: Theme.of(ctx).textTheme.bodyMedium),
@@ -495,13 +524,6 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 						),
 					),
 					actions: [
-						OutlinedButton(
-							onPressed: () async {
-								await Clipboard.setData(const ClipboardData(text: enlace));
-								setLocal(() => copiado = true);
-							},
-							child: Text(copiado ? '¡Enlace copiado!' : 'Copiar enlace'),
-						),
 						ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendido')),
 					],
 				),
@@ -517,35 +539,39 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		final info = _nueva;
 		if (info == null) return const SizedBox.shrink();
 
-		return AnimatedBuilder(
-			animation: _pulso,
-			builder: (context, child) {
-				final t = Curves.easeInOut.transform(_pulso.value);
-				return Container(
-					decoration: BoxDecoration(
-						shape: BoxShape.circle,
-						boxShadow: [
-							BoxShadow(
-								color: context.primaryPurple.withValues(alpha: 0.45 * (1 - t)),
-								blurRadius: 6 + 14 * t,
-								spreadRadius: 1 + 5 * t,
-							),
-						],
+		return Padding(
+			// Este Padding empuja el botón 10px a la izquierda y 10px abajo
+			padding: const EdgeInsets.only(left: 10, bottom: 10),
+			child: AnimatedBuilder(
+				animation: _pulso,
+				builder: (context, child) {
+					final t = Curves.easeInOut.transform(_pulso.value);
+					return Container(
+						decoration: BoxDecoration(
+							shape: BoxShape.circle,
+							boxShadow: [
+								BoxShadow(
+									color: context.primaryPurple.withValues(alpha: 0.45 * (1 - t)),
+									blurRadius: 6 + 14 * t,
+									spreadRadius: 1 + 5 * t,
+								),
+							],
+						),
+						child: child,
+					);
+				},
+				child: Badge(
+					smallSize: 10,
+					backgroundColor: context.accentOrange,
+					child: FloatingActionButton.small(
+						heroTag: 'btn_actualizar',
+						tooltip: 'Nueva versión ${info.version} disponible',
+						backgroundColor: context.primaryPurple,
+						foregroundColor: Colors.white,
+						elevation: 2,
+						onPressed: _alPresionar,
+						child: const Icon(Icons.browser_updated),
 					),
-					child: child,
-				);
-			},
-			child: Badge(
-				smallSize: 10,
-				backgroundColor: context.accentOrange,
-				child: FloatingActionButton.small(
-					heroTag: 'btn_actualizar',
-					tooltip: 'Nueva versión ${info.version} disponible',
-					backgroundColor: context.primaryPurple,
-					foregroundColor: Colors.white,
-					elevation: 2,
-					onPressed: _alPresionar,
-					child: const Icon(Icons.browser_updated),
 				),
 			),
 		);
