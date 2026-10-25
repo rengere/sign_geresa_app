@@ -493,7 +493,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	/// Diálogo de respaldo: explica el problema y da las instrucciones.
 	Future<void> _mostrarFalla(String motivo) async {
 		if (!mounted) return;
-		var copiado = false;
+		// var copiado = false;
 
 		await showDialog<void>(
 			context: context,

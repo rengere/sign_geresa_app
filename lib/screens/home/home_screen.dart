@@ -14,6 +14,8 @@ class HomeScreen extends StatelessWidget {
 			backgroundColor: context.backgroundLight,
 			body: HomeBox(
 				children: [
+
+
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFDCFCE7),
 						icono: const Icon(Icons.verified_user_rounded, size: 40, color: Color(0xFF10B981)),
@@ -28,21 +30,39 @@ class HomeScreen extends StatelessWidget {
 							);
 						},
 					),
+
 					ActionCard(
-						iconBackgroundColor: const Color(0xFFF3E8FF),
-						icono: const Icon(Icons.copy_all_rounded, size: 40, color: Color(0xFF8B5CF6)),
-						titulo: "Unir PDF's",
-						descripcion: 'Combina varios archivos PDF en uno solo.',
+						iconBackgroundColor: const Color(0xFFFFEDD5),
+						icono: const Icon(Icons.open_in_new_rounded, size: 40, color: Color(0xFFF97316)),
+						titulo: 'Qellqa',
+						descripcion: 'Accede a la aplicación Qellqa desde aquí.',
 						onTap: () {
 							Navigator.push(
 								context,
 								MaterialPageRoute(builder: (context) => const WebView(
-									url: "https://www.ilovepdf.com/es/unir_pdf",
-									titulo: 'Unir Archivos PDF'
+									url: "https://qellqa.regioncusco.gob.pe/auth",
+									titulo: 'Qellqa'
 								)),
 							);
 						},
 					),
+
+					ActionCard(
+						iconBackgroundColor: const Color(0xFFEDE9FE),
+						icono: const Icon(Icons.email_outlined, size: 40, color: Color(0xFF8B5CF6)),
+						titulo: 'Correo Institucional',
+						descripcion: 'Organiza y guarda tus archivos de forma rápida y segura.',
+						onTap: () {
+							Navigator.push(
+								context,
+								MaterialPageRoute(builder: (context) => const WebView(
+									url: "https://webmail.diresacusco.gob.pe/",
+									titulo: 'Correo Institucional'
+								)),
+							);
+						},
+					),
+					
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFDBEAFE),
 						icono: const Row(
@@ -67,21 +87,23 @@ class HomeScreen extends StatelessWidget {
 							);
 						},
 					),
+
 					ActionCard(
-						iconBackgroundColor: const Color(0xFFFFEDD5),
-						icono: const Icon(Icons.open_in_new_rounded, size: 40, color: Color(0xFFF97316)),
-						titulo: 'Qellqa',
-						descripcion: 'Accede a la aplicación Qellqa desde aquí.',
+						iconBackgroundColor: const Color(0xFFF3E8FF),
+						icono: const Icon(Icons.copy_all_rounded, size: 40, color: Color(0xFF8B5CF6)),
+						titulo: "Unir PDF's",
+						descripcion: 'Combina varios archivos PDF en uno solo.',
 						onTap: () {
 							Navigator.push(
 								context,
 								MaterialPageRoute(builder: (context) => const WebView(
-									url: "https://qellqa.regioncusco.gob.pe/auth",
-									titulo: 'Qellqa'
+									url: "https://www.ilovepdf.com/es/unir_pdf",
+									titulo: 'Unir Archivos PDF'
 								)),
 							);
 						},
 					),
+
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFCCFBF1),
 						icono: const Icon(Icons.call_split, size: 40, color: Color(0xFF14B8A6)),
@@ -97,21 +119,26 @@ class HomeScreen extends StatelessWidget {
 							);
 						},
 					),
+
 					ActionCard(
-						iconBackgroundColor: const Color(0xFFEDE9FE),
-						icono: const Icon(Icons.email_outlined, size: 40, color: Color(0xFF8B5CF6)),
-						titulo: 'Correo Institucional',
-						descripcion: 'Organiza y guarda tus archivos de forma rápida y segura.',
+						iconBackgroundColor: const Color(0xFFCCFBF1),
+						icono: const Icon(Icons.call_split, size: 40, color: Color(0xFF14B8A6)),
+						titulo: 'Foliar PDF',
+						descripcion: 'Añade un numero a un documento PDF.',
 						onTap: () {
 							Navigator.push(
 								context,
 								MaterialPageRoute(builder: (context) => const WebView(
-									url: "https://webmail.diresacusco.gob.pe/",
-									titulo: 'Correo Institucional'
+									url: "https://www.ilovepdf.com/es/insertar_numeros_de_pagina_pdf",
+									titulo: 'Foliar PDF'
 								)),
 							);
 						},
 					),
+					
+
+
+
 				],
 			),
 		);
