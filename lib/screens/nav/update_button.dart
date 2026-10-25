@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
+import 'package:archive/archive_io.dart' show extractFileToDisk;
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/data/github.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -16,69 +19,10 @@ const String _githubUsuario = githubUsuario;
 const String _githubRepo = githubRepo;
 const Duration _intervaloRevision = Duration(minutes: 30);
 
-/// Script que reemplaza los archivos cuando la app ya se cerró.
-/// Escribe un log en %TEMP%\firmador_actualizacion.log
-/// y crea un archivo "marca" apenas arranca, para que la app sepa que funcionó.
-const String _scriptActualizador = r'''
-param(
-[int]$PidApp,
-[string]$Zip,
-[string]$Destino,
-[string]$Exe,
-[string]$Marca
-)
-$log = Join-Path $env:TEMP 'firmador_actualizacion.log'
-function Log($mensaje) {
-"[$(Get-Date)] $mensaje" | Out-File -FilePath $log -Append -Encoding UTF8
-}
-Set-Content -LiteralPath $Marca -Value 'inicio'
-Log "Script iniciado. PID de la app: $PidApp"
-try {
-$ErrorActionPreference = 'Stop'
-
-$limite = (Get-Date).AddSeconds(10)
-while (Get-Process -Id $PidApp -ErrorAction SilentlyContinue) {
-if ((Get-Date) -gt $limite) {
-Log 'La app no se cerro sola. Forzando cierre.'
-Stop-Process -Id $PidApp -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-break
-}
-Start-Sleep -Milliseconds 300
-}
-Log 'App cerrada. Extrayendo archivos.'
-Start-Sleep -Seconds 1
-
-$tmp = Join-Path $env:TEMP 'firmador_actualizacion'
-if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
-Expand-Archive -LiteralPath $Zip -DestinationPath $tmp -Force
-
-$origen = $tmp
-$hijos = @(Get-ChildItem -LiteralPath $tmp)
-if ($hijos.Count -eq 1 -and $hijos[0].PSIsContainer) { $origen = $hijos[0].FullName }
-
-Log "Copiando desde $origen hacia $Destino"
-$copiado = $false
-for ($i = 0; $i -lt 10 -and -not $copiado; $i++) {
-try {
-Copy-Item -Path (Join-Path $origen '*') -Destination $Destino -Recurse -Force
-$copiado = $true
-} catch {
-Log "Reintento $($i + 1): $_"
-Start-Sleep -Seconds 1
-}
-}
-if (-not $copiado) { throw 'No se pudieron copiar los archivos nuevos.' }
-
-Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
-Log 'Actualizacion completada.'
-} catch {
-Log "ERROR: $_"
-}
-Log 'Abriendo la app.'
-Start-Process -FilePath $Exe -WorkingDirectory $Destino
-''';
+/// Los archivos reemplazados se renombran con este sufijo y se borran al reiniciar.
+const String _sufijoRespaldo = '.upd_old';
+const String _carpetaTemporal = '_actualizacion_tmp';
+const String _listaRespaldos = '_respaldos_actualizacion.txt';
 
 class _InfoActualizacion {
 	final String version;
@@ -90,6 +34,13 @@ class _InfoActualizacion {
 		required this.urlZip,
 		required this.notas,
 	});
+}
+
+class _Cambio {
+	final String objetivo;
+	final String? respaldo;
+
+	const _Cambio(this.objetivo, this.respaldo);
 }
 
 /// Botón flotante que aparece solo cuando hay una versión nueva en GitHub.
@@ -109,10 +60,13 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	bool _revisando = false;
 	bool _instalando = false;
 
+	String get _carpetaApp => File(Platform.resolvedExecutable).parent.path;
+
 	@override
 	void initState() {
 		super.initState();
 		_pulso = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat(reverse: true);
+		unawaited(_limpiarRestos());
 		_revisar();
 		_timer = Timer.periodic(_intervaloRevision, (_) => _revisar());
 	}
@@ -122,6 +76,40 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		_timer?.cancel();
 		_pulso.dispose();
 		super.dispose();
+	}
+
+	// ==========================================
+	// LIMPIEZA DE RESTOS DE LA ACTUALIZACIÓN ANTERIOR
+	// ==========================================
+	Future<void> _limpiarRestos() async {
+		// Espera a que el proceso anterior termine de cerrarse.
+		await Future<void>.delayed(const Duration(seconds: 5));
+		try {
+			final carpeta = _carpetaApp;
+			await _borrarCarpeta(Directory('$carpeta\\$_carpetaTemporal'));
+
+			final lista = File('$carpeta\\$_listaRespaldos');
+			if (!await lista.exists()) return;
+
+			final pendientes = <String>[];
+			for (final ruta in await lista.readAsLines()) {
+				if (ruta.trim().isEmpty) continue;
+				try {
+					final archivo = File(ruta);
+					if (await archivo.exists()) await archivo.delete();
+				} catch (_) {
+					pendientes.add(ruta);
+				}
+			}
+
+			if (pendientes.isEmpty) {
+				await lista.delete();
+			} else {
+				await lista.writeAsString(pendientes.join('\n'));
+			}
+		} catch (_) {
+			// La limpieza es opcional: si falla, se intenta en el próximo inicio.
+		}
 	}
 
 	// ==========================================
@@ -231,7 +219,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	}
 
 	// ==========================================
-	// DESCARGAR E INSTALAR
+	// DESCARGAR E INSTALAR (sin scripts)
 	// ==========================================
 	Future<void> _instalar(_InfoActualizacion info) async {
 		if (kDebugMode) {
@@ -239,95 +227,165 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			return;
 		}
 
-		final carpetaApp = File(Platform.resolvedExecutable).parent.path;
+		final carpetaApp = _carpetaApp;
 		if (!await _puedeEscribir(carpetaApp)) {
-			if (!mounted) return;
-			_mensaje('La carpeta de la app no permite escribir:\n$carpetaApp\nMueve la app a una carpeta como el Escritorio o D:\\.', error: true);
+			await _mostrarFalla(
+				'La carpeta donde está la aplicación no permite guardar archivos:\n$carpetaApp\n\nMueve la aplicación a una carpeta propia, como Documentos o el Escritorio, y ábrela desde ahí.',
+			);
 			return;
 		}
 		if (!mounted) return;
 
 		_instalando = true;
 		final progreso = ValueNotifier<double?>(null);
+		final etapa = ValueNotifier<String>('Descargando');
 
 		showDialog(
 			context: context,
 			barrierDismissible: false,
 			builder: (_) => PopScope(
 				canPop: false,
-				child: _DialogoProgreso(progreso: progreso, version: info.version),
+				child: _DialogoProgreso(progreso: progreso, etapa: etapa, version: info.version),
 			),
 		);
 
+		final zip = File('${Directory.systemTemp.path}\\firmador_actualizacion.zip');
+		final temporal = Directory('$carpetaApp\\$_carpetaTemporal');
+		final cambios = <_Cambio>[];
+
 		try {
-			final zip = await _descargar(info.urlZip, progreso);
+			// 1. Descargar
+			await _descargar(info.urlZip, zip, progreso);
 
-			final temp = Directory.systemTemp.path;
-			final script = File('$temp\\firmador_actualizar.ps1');
-			final marca = File('$temp\\firmador_actualizacion.inicio');
-			final log = File('$temp\\firmador_actualizacion.log');
+			// 2. Extraer (en otro hilo para no congelar la ventana)
+			etapa.value = 'Preparando archivos';
+			progreso.value = null;
+			await _borrarCarpeta(temporal);
+			await temporal.create(recursive: true);
+			final rutaZip = zip.path;
+			final rutaTemporal = temporal.path;
+			await Isolate.run(() => extractFileToDisk(rutaZip, rutaTemporal));
 
-			// Se borran restos de intentos anteriores para no confundir el resultado.
-			await _borrarSiExiste(marca);
-			await _borrarSiExiste(log);
-			await script.writeAsString(_scriptActualizador);
+			// Si el zip trae una sola carpeta adentro, se usa esa como origen.
+			var origen = temporal;
+			final hijos = await temporal.list().toList();
+			if (hijos.length == 1 && hijos.first is Directory) {
+				origen = hijos.first as Directory;
+			}
+
+			// Seguridad: el paquete debe contener el ejecutable de la app.
+			final nombreExe = Platform.resolvedExecutable.split('\\').last;
+			if (!await File('${origen.path}\\$nombreExe').exists()) {
+				throw StateError('El paquete descargado no contiene $nombreExe.');
+			}
+
+			// 3. Reemplazar archivos (renombrando los viejos)
+			etapa.value = 'Instalando';
+			await _aplicar(origen, carpetaApp, cambios);
+
+			// 4. Guardar la lista de respaldos para borrarlos en el próximo inicio
+			final lista = File('$carpetaApp\\$_listaRespaldos');
+			final previos = await lista.exists() ? await lista.readAsLines() : <String>[];
+			final nuevos = cambios.where((c) => c.respaldo != null).map((c) => c.respaldo!);
+			await lista.writeAsString([...previos, ...nuevos].join('\n'));
+
+			// 5. Limpiar y reiniciar con la versión nueva
+			etapa.value = 'Reiniciando';
+			await _borrarCarpeta(temporal);
+			await _borrarArchivo(zip);
 
 			await Process.start(
-				'powershell.exe',
-				[
-					'-NoProfile',
-					'-ExecutionPolicy',
-					'Bypass',
-					'-WindowStyle',
-					'Hidden',
-					'-File',
-					script.path,
-					'-PidApp',
-					'$pid',
-					'-Zip',
-					zip.path,
-					'-Destino',
-					carpetaApp,
-					'-Exe',
-					Platform.resolvedExecutable,
-					'-Marca',
-					marca.path,
-				],
+				Platform.resolvedExecutable,
+				const <String>[],
+				workingDirectory: carpetaApp,
 				mode: ProcessStartMode.detached,
 			);
-
-			// Antes de cerrar la app, se comprueba que el script realmente arrancó.
-			// El script crea la "marca" en su primera línea. Se espera hasta 15 segundos.
-			var arranco = false;
-			for (var i = 0; i < 60; i++) {
-				if (await marca.exists()) {
-					arranco = true;
-					break;
-				}
-				await Future.delayed(const Duration(milliseconds: 250));
-			}
-
-			if (!arranco) {
-				throw StateError(
-					'El actualizador no pudo iniciarse. Es posible que Windows, una directiva de seguridad o el antivirus bloquee los scripts de PowerShell.\nLa app NO se cerró y sigue en la versión $_versionInstalada.',
-				);
-			}
-
+			await Future<void>.delayed(const Duration(milliseconds: 800));
 			exit(0);
 		} catch (e) {
+			// Si algo falló, se deshace todo y la app vieja sigue funcionando.
+			await _revertir(cambios);
+			await _borrarCarpeta(temporal);
+			await _borrarArchivo(zip);
 			_instalando = false;
 			if (!mounted) return;
 			Navigator.of(context, rootNavigator: true).pop(); // cierra el diálogo de progreso
-			_mensaje('No se pudo actualizar: $e', error: true);
+			await _mostrarFalla(_texto(e));
 		}
 	}
 
-	Future<void> _borrarSiExiste(File archivo) async {
+	/// Mueve los archivos nuevos a la carpeta de la app.
+	/// Los archivos existentes se renombran (Windows permite renombrar un archivo en uso).
+	Future<void> _aplicar(Directory origen, String destino, List<_Cambio> cambios) async {
+		final nuevos = <File>[];
+		await for (final e in origen.list(recursive: true, followLinks: false)) {
+			if (e is File) nuevos.add(e);
+		}
+
+		for (final nuevo in nuevos) {
+			final relativa = nuevo.path.substring(origen.path.length + 1);
+			final objetivo = File('$destino\\$relativa');
+
+			await objetivo.parent.create(recursive: true);
+
+			String? respaldo;
+			if (await objetivo.exists()) {
+				respaldo = await _rutaRespaldo(objetivo.path);
+				try {
+					await objetivo.rename(respaldo);
+				} catch (e) {
+					throw StateError('No se pudo reemplazar "$relativa". ${_texto(e)}');
+				}
+			}
+			cambios.add(_Cambio(objetivo.path, respaldo));
+
+			try {
+				await nuevo.rename(objetivo.path);
+			} catch (_) {
+				await nuevo.copy(objetivo.path);
+			}
+		}
+	}
+
+	Future<String> _rutaRespaldo(String ruta) async {
+		var candidato = '$ruta$_sufijoRespaldo';
+		if (await File(candidato).exists()) {
+			try {
+				await File(candidato).delete();
+			} catch (_) {
+				candidato = '$ruta.${DateTime.now().millisecondsSinceEpoch}$_sufijoRespaldo';
+			}
+		}
+		return candidato;
+	}
+
+	/// Deshace los cambios hechos hasta el momento del error.
+	Future<void> _revertir(List<_Cambio> cambios) async {
+		for (final c in cambios.reversed) {
+			try {
+				final actual = File(c.objetivo);
+				if (await actual.exists()) await actual.delete();
+			} catch (_) {}
+
+			final respaldo = c.respaldo;
+			if (respaldo != null) {
+				try {
+					await File(respaldo).rename(c.objetivo);
+				} catch (_) {}
+			}
+		}
+	}
+
+	Future<void> _borrarCarpeta(Directory carpeta) async {
+		try {
+			if (await carpeta.exists()) await carpeta.delete(recursive: true);
+		} catch (_) {}
+	}
+
+	Future<void> _borrarArchivo(File archivo) async {
 		try {
 			if (await archivo.exists()) await archivo.delete();
-		} catch (_) {
-			// Si no se puede borrar, se ignora.
-		}
+		} catch (_) {}
 	}
 
 	Future<bool> _puedeEscribir(String carpeta) async {
@@ -341,7 +399,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		}
 	}
 
-	Future<File> _descargar(String url, ValueNotifier<double?> progreso) async {
+	Future<void> _descargar(String url, File destino, ValueNotifier<double?> progreso) async {
 		final cliente = http.Client();
 		try {
 			final peticion = http.Request('GET', Uri.parse(url));
@@ -349,12 +407,11 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			final resp = await cliente.send(peticion);
 
 			if (resp.statusCode != 200) {
-				throw HttpException('Descarga fallida (HTTP ${resp.statusCode})');
+				throw HttpException('La descarga falló (código ${resp.statusCode}).');
 			}
 
 			final total = resp.contentLength ?? 0;
-			final archivo = File('${Directory.systemTemp.path}\\firmador_actualizacion.zip');
-			final sink = archivo.openWrite();
+			final sink = destino.openWrite();
 			try {
 				var recibido = 0;
 				await for (final trozo in resp.stream) {
@@ -365,12 +422,23 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			} finally {
 				await sink.close();
 			}
-			return archivo;
 		} finally {
 			cliente.close();
 		}
 	}
 
+	String _texto(Object e) {
+		if (e is FileSystemException) {
+			final ruta = e.path != null && e.path!.isNotEmpty ? ': ${e.path}' : '';
+			final sistema = e.osError != null ? ' (${e.osError!.message})' : '';
+			return '${e.message}$ruta$sistema';
+		}
+		return e.toString().replaceFirst('Bad state: ', '');
+	}
+
+	// ==========================================
+	// MENSAJES
+	// ==========================================
 	void _mensaje(String texto, {bool error = false}) {
 		ScaffoldMessenger.of(context)
 			..hideCurrentSnackBar()
@@ -384,6 +452,57 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 					shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusSm)),
 				),
 			);
+	}
+
+	/// Diálogo de respaldo: explica el problema y da el enlace para actualizar a mano.
+	Future<void> _mostrarFalla(String motivo) async {
+		if (!mounted) return;
+		final enlace = 'https://github.com/$_githubUsuario/$_githubRepo/releases/latest';
+		var copiado = false;
+
+		await showDialog<void>(
+			context: context,
+			builder: (ctx) => StatefulBuilder(
+				builder: (ctx, setLocal) => AlertDialog(
+					backgroundColor: ctx.surfaceWhite,
+					surfaceTintColor: Colors.transparent,
+					shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ctx.radiusLg)),
+					title: const Text('No se pudo actualizar automáticamente'),
+					content: SizedBox(
+						width: 460,
+						child: SingleChildScrollView(
+							child: Column(
+								mainAxisSize: MainAxisSize.min,
+								crossAxisAlignment: CrossAxisAlignment.start,
+								children: [
+									Text(motivo, style: Theme.of(ctx).textTheme.bodyMedium),
+									const SizedBox(height: 16),
+									Text('Puedes actualizar manualmente:', style: Theme.of(ctx).textTheme.titleSmall),
+									const SizedBox(height: 6),
+									Text('1. Abre este enlace en tu navegador y descarga "firmador-windows.zip".', style: Theme.of(ctx).textTheme.bodyMedium),
+									const SizedBox(height: 4),
+									SelectableText(enlace, style: TextStyle(color: ctx.primaryPurple, fontSize: 13, fontWeight: FontWeight.w600)),
+									const SizedBox(height: 6),
+									Text('2. Extrae el zip en una carpeta propia, como Documentos o el Escritorio.', style: Theme.of(ctx).textTheme.bodyMedium),
+									const SizedBox(height: 4),
+									Text('3. Abre la aplicación desde esa carpeta nueva.', style: Theme.of(ctx).textTheme.bodyMedium),
+								],
+							),
+						),
+					),
+					actions: [
+						OutlinedButton(
+							onPressed: () async {
+								await Clipboard.setData(ClipboardData(text: enlace));
+								setLocal(() => copiado = true);
+							},
+							child: Text(copiado ? '¡Enlace copiado!' : 'Copiar enlace'),
+						),
+						ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendido')),
+					],
+				),
+			),
+		);
 	}
 
 	// ==========================================
@@ -431,9 +550,10 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 
 class _DialogoProgreso extends StatelessWidget {
 	final ValueNotifier<double?> progreso;
+	final ValueNotifier<String> etapa;
 	final String version;
 
-	const _DialogoProgreso({required this.progreso, required this.version});
+	const _DialogoProgreso({required this.progreso, required this.etapa, required this.version});
 
 	@override
 	Widget build(BuildContext context) {
@@ -441,12 +561,13 @@ class _DialogoProgreso extends StatelessWidget {
 			backgroundColor: context.surfaceWhite,
 			surfaceTintColor: Colors.transparent,
 			shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusLg)),
-			title: Text('Descargando versión $version'),
+			title: Text('Actualizando a la versión $version'),
 			content: SizedBox(
 				width: 380,
-				child: ValueListenableBuilder<double?>(
-					valueListenable: progreso,
-					builder: (context, valor, _) {
+				child: AnimatedBuilder(
+					animation: Listenable.merge([progreso, etapa]),
+					builder: (context, _) {
+						final valor = progreso.value;
 						return Column(
 							mainAxisSize: MainAxisSize.min,
 							crossAxisAlignment: CrossAxisAlignment.start,
@@ -462,12 +583,12 @@ class _DialogoProgreso extends StatelessWidget {
 								),
 								const SizedBox(height: 12),
 								Text(
-									valor == null ? 'Preparando descarga…' : '${(valor * 100).toStringAsFixed(0)} %',
+									valor == null ? '${etapa.value}…' : '${etapa.value} ${(valor * 100).toStringAsFixed(0)} %',
 									style: Theme.of(context).textTheme.titleSmall,
 								),
 								const SizedBox(height: 4),
 								Text(
-									'La app se reiniciará sola al terminar.',
+									'No cierres la aplicación. Se reiniciará sola al terminar.',
 									style: Theme.of(context).textTheme.bodyMedium,
 								),
 							],
