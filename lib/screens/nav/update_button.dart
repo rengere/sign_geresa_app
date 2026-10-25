@@ -43,6 +43,12 @@ class _Cambio {
 	const _Cambio(this.objetivo, this.respaldo);
 }
 
+/// Está fuera de la clase a propósito: así el hilo secundario solo recibe
+/// dos textos y no arrastra la ventana ni el estado de la app.
+Future<void> _extraerZip(String rutaZip, String rutaDestino) {
+	return Isolate.run(() => extractFileToDisk(rutaZip, rutaDestino));
+}
+
 /// Botón flotante que aparece solo cuando hay una versión nueva en GitHub.
 class UpdateButton extends StatefulWidget {
 	const UpdateButton({super.key});
@@ -262,9 +268,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			progreso.value = null;
 			await _borrarCarpeta(temporal);
 			await temporal.create(recursive: true);
-			final rutaZip = zip.path;
-			final rutaTemporal = temporal.path;
-			await Isolate.run(() => extractFileToDisk(rutaZip, rutaTemporal));
+			await _extraerZip(zip.path, temporal.path);
 
 			// Si el zip trae una sola carpeta adentro, se usa esa como origen.
 			var origen = temporal;
@@ -457,7 +461,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	/// Diálogo de respaldo: explica el problema y da el enlace para actualizar a mano.
 	Future<void> _mostrarFalla(String motivo) async {
 		if (!mounted) return;
-		final enlace = 'https://github.com/$_githubUsuario/$_githubRepo/releases/latest';
+		const enlace = 'https://github.com/$_githubUsuario/$_githubRepo/releases/latest';
 		var copiado = false;
 
 		await showDialog<void>(
@@ -493,7 +497,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 					actions: [
 						OutlinedButton(
 							onPressed: () async {
-								await Clipboard.setData(ClipboardData(text: enlace));
+								await Clipboard.setData(const ClipboardData(text: enlace));
 								setLocal(() => copiado = true);
 							},
 							child: Text(copiado ? '¡Enlace copiado!' : 'Copiar enlace'),
