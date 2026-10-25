@@ -10,7 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
 // ==========================================
-// CONFIGURACIÓN (cámbialo por tus datos)
+// CONFIGURACIÓN
 // ==========================================
 const String _githubUsuario = githubUsuario;
 const String _githubRepo = githubRepo;
@@ -18,47 +18,66 @@ const Duration _intervaloRevision = Duration(minutes: 30);
 
 /// Script que reemplaza los archivos cuando la app ya se cerró.
 /// Escribe un log en %TEMP%\firmador_actualizacion.log
+/// y crea un archivo "marca" apenas arranca, para que la app sepa que funcionó.
 const String _scriptActualizador = r'''
 param(
 [int]$PidApp,
 [string]$Zip,
 [string]$Destino,
-[string]$Exe
+[string]$Exe,
+[string]$Marca
 )
-$ErrorActionPreference = 'Stop'
 $log = Join-Path $env:TEMP 'firmador_actualizacion.log'
+function Log($mensaje) {
+"[$(Get-Date)] $mensaje" | Out-File -FilePath $log -Append -Encoding UTF8
+}
+Set-Content -LiteralPath $Marca -Value 'inicio'
+Log "Script iniciado. PID de la app: $PidApp"
 try {
-"[$(Get-Date)] Esperando a que se cierre la app (PID $PidApp)" | Out-File $log
-while (Get-Process -Id $PidApp -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 300 }
+$ErrorActionPreference = 'Stop'
+
+$limite = (Get-Date).AddSeconds(10)
+while (Get-Process -Id $PidApp -ErrorAction SilentlyContinue) {
+if ((Get-Date) -gt $limite) {
+Log 'La app no se cerro sola. Forzando cierre.'
+Stop-Process -Id $PidApp -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+break
+}
+Start-Sleep -Milliseconds 300
+}
+Log 'App cerrada. Extrayendo archivos.'
 Start-Sleep -Seconds 1
 
 $tmp = Join-Path $env:TEMP 'firmador_actualizacion'
-if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
+if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
 Expand-Archive -LiteralPath $Zip -DestinationPath $tmp -Force
 
 $origen = $tmp
 $hijos = @(Get-ChildItem -LiteralPath $tmp)
 if ($hijos.Count -eq 1 -and $hijos[0].PSIsContainer) { $origen = $hijos[0].FullName }
 
+Log "Copiando desde $origen hacia $Destino"
 $copiado = $false
 for ($i = 0; $i -lt 10 -and -not $copiado; $i++) {
 try {
 Copy-Item -Path (Join-Path $origen '*') -Destination $Destino -Recurse -Force
 $copiado = $true
 } catch {
-"[$(Get-Date)] Reintento $($i + 1): $_" | Out-File $log -Append
+Log "Reintento $($i + 1): $_"
 Start-Sleep -Seconds 1
 }
 }
 if (-not $copiado) { throw 'No se pudieron copiar los archivos nuevos.' }
 
-Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item $Zip -Force -ErrorAction SilentlyContinue
-"[$(Get-Date)] Actualizacion completada" | Out-File $log -Append
+Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $Zip -Force -ErrorAction SilentlyContinue
+Log 'Actualizacion completada.'
 } catch {
-"[$(Get-Date)] ERROR: $_" | Out-File $log -Append
+Log "ERROR: $_"
 }
-Start-Process -FilePath $Exe
+Log 'Abriendo la app.'
+Start-Process -FilePath $Exe -WorkingDirectory $Destino
 ''';
 
 class _InfoActualizacion {
@@ -243,7 +262,14 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		try {
 			final zip = await _descargar(info.urlZip, progreso);
 
-			final script = File('${Directory.systemTemp.path}\\firmador_actualizar.ps1');
+			final temp = Directory.systemTemp.path;
+			final script = File('$temp\\firmador_actualizar.ps1');
+			final marca = File('$temp\\firmador_actualizacion.inicio');
+			final log = File('$temp\\firmador_actualizacion.log');
+
+			// Se borran restos de intentos anteriores para no confundir el resultado.
+			await _borrarSiExiste(marca);
+			await _borrarSiExiste(log);
 			await script.writeAsString(_scriptActualizador);
 
 			await Process.start(
@@ -264,9 +290,28 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 					carpetaApp,
 					'-Exe',
 					Platform.resolvedExecutable,
+					'-Marca',
+					marca.path,
 				],
 				mode: ProcessStartMode.detached,
 			);
+
+			// Antes de cerrar la app, se comprueba que el script realmente arrancó.
+			// El script crea la "marca" en su primera línea. Se espera hasta 15 segundos.
+			var arranco = false;
+			for (var i = 0; i < 60; i++) {
+				if (await marca.exists()) {
+					arranco = true;
+					break;
+				}
+				await Future.delayed(const Duration(milliseconds: 250));
+			}
+
+			if (!arranco) {
+				throw StateError(
+					'El actualizador no pudo iniciarse. Es posible que Windows, una directiva de seguridad o el antivirus bloquee los scripts de PowerShell.\nLa app NO se cerró y sigue en la versión $_versionInstalada.',
+				);
+			}
 
 			exit(0);
 		} catch (e) {
@@ -274,8 +319,14 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			if (!mounted) return;
 			Navigator.of(context, rootNavigator: true).pop(); // cierra el diálogo de progreso
 			_mensaje('No se pudo actualizar: $e', error: true);
-		} finally {
-			progreso.dispose();
+		}
+	}
+
+	Future<void> _borrarSiExiste(File archivo) async {
+		try {
+			if (await archivo.exists()) await archivo.delete();
+		} catch (_) {
+			// Si no se puede borrar, se ignora.
 		}
 	}
 
@@ -329,7 +380,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 					backgroundColor: error ? context.errorRed : context.textDark,
 					behavior: SnackBarBehavior.floating,
 					width: 460,
-					duration: const Duration(seconds: 6),
+					duration: const Duration(seconds: 10),
 					shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusSm)),
 				),
 			);

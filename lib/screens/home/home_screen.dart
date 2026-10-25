@@ -70,9 +70,17 @@ class HomeScreen extends StatelessWidget {
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFFFEDD5),
 						icono: const Icon(Icons.open_in_new_rounded, size: 40, color: Color(0xFFF97316)),
-						titulo: 'Abrir ventana de Refirma',
-						descripcion: 'Accede a la aplicación Refirma desde aquí.',
-						onTap: () {},
+						titulo: 'QellQa',
+						descripcion: 'Accede a la aplicación Qellqa desde aquí.',
+						onTap: () {
+							Navigator.push(
+								context,
+								MaterialPageRoute(builder: (context) => const WebView(
+									url: "https://qellqa.regioncusco.gob.pe/auth",
+									titulo: 'Qellqa'
+								)),
+							);
+						},
 					),
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFCCFBF1),
