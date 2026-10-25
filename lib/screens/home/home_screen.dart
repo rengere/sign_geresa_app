@@ -16,6 +16,7 @@ class HomeScreen extends StatelessWidget {
 				children: [
 
 
+
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFDCFCE7),
 						icono: const Icon(Icons.verified_user_rounded, size: 40, color: Color(0xFF10B981)),

@@ -45,7 +45,6 @@ Future<void> _extraerZip(String rutaZip, String rutaDestino) {
 	return Isolate.run(() => extractFileToDisk(rutaZip, rutaDestino));
 }
 
-/// Botón flotante que aparece solo cuando hay una versión nueva en GitHub.
 class UpdateButton extends StatefulWidget {
 	const UpdateButton({super.key});
 
@@ -112,7 +111,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	}
 
 	// ==========================================
-	// REVISAR GITHUB
+	// REVISAR
 	// ==========================================
 	Future<void> _revisar() async {
 		if (_revisando || _instalando) return;
@@ -168,11 +167,28 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	}
 
 	// ==========================================
+	// LIMPIAR NOTAS (QUITAR LINK DE GITHUB)
+	// ==========================================
+	String _limpiarNotas(String notas) {
+		// Elimina cualquier línea que contenga "Full Changelog" o "github.com"
+		final lineas = notas.split('\n');
+		final filtradas = lineas.where((linea) {
+			final l = linea.toLowerCase();
+			return !l.contains('full changelog') && 
+			       !l.contains('github.com/') && 
+			       !l.contains('compare/v');
+		}).toList();
+		return filtradas.join('\n').trim();
+	}
+
+	// ==========================================
 	// ACCIÓN DEL BOTÓN
 	// ==========================================
 	Future<void> _alPresionar() async {
 		final info = _nueva;
 		if (info == null || _instalando) return;
+
+		final notasLimpias = _limpiarNotas(info.notas);
 
 		final confirmar = await showDialog<bool>(
 			context: context,
@@ -185,7 +201,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 					child: Column(
 						mainAxisSize: MainAxisSize.min,
 						children: [
-							// Icono superior de PC
+							// Icono de PC (Desktop)
 							Container(
 								padding: const EdgeInsets.all(16),
 								decoration: BoxDecoration(
@@ -194,68 +210,84 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 								),
 								child: Icon(Icons.desktop_windows_rounded, size: 40, color: ctx.primaryPurple),
 							),
-							const SizedBox(height: 16),
+							const SizedBox(height: 20),
 							Text(
 								'Nueva versión disponible',
-								style: Theme.of(ctx).textTheme.titleLarge,
+								style: Theme.of(ctx).textTheme.headlineSmall,
 								textAlign: TextAlign.center,
 							),
-							const SizedBox(height: 20),
+							const SizedBox(height: 24),
 							
-							// Versiones destacadas (Original -> Nueva)
+							// Diseño grande y centrado para las versiones
 							Row(
 								mainAxisAlignment: MainAxisAlignment.center,
 								children: [
-									Text(
-										_versionInstalada,
-										style: TextStyle(
-											color: ctx.textGrey,
-											fontSize: 20,
-											fontWeight: FontWeight.w600,
-										),
+									// Versión actual
+									Column(
+										children: [
+											Text(
+												'Actual',
+												style: TextStyle(color: ctx.textGrey, fontSize: 12, fontWeight: FontWeight.w500),
+											),
+											const SizedBox(height: 4),
+											Text(
+												_versionInstalada,
+												style: TextStyle(color: ctx.textDark, fontSize: 20, fontWeight: FontWeight.bold),
+											),
+										],
 									),
+									// Flecha
 									Padding(
-										padding: const EdgeInsets.symmetric(horizontal: 12),
+										padding: const EdgeInsets.symmetric(horizontal: 24),
 										child: Icon(Icons.arrow_forward_rounded, color: ctx.primaryPurple, size: 24),
 									),
-									Text(
-										info.version,
-										style: TextStyle(
-											color: ctx.primaryPurple,
-											fontSize: 24,
-											fontWeight: FontWeight.w800,
-										),
+									// Nueva versión
+									Column(
+										children: [
+											Text(
+												'Nueva',
+												style: TextStyle(color: ctx.primaryPurple, fontSize: 12, fontWeight: FontWeight.w600),
+											),
+											const SizedBox(height: 4),
+											Text(
+												info.version,
+												style: TextStyle(color: ctx.primaryPurple, fontSize: 20, fontWeight: FontWeight.bold),
+											),
+										],
 									),
 								],
 							),
 							
 							const SizedBox(height: 24),
-							
-							// Notas de la versión (SIN LINK DE GITHUB)
-							// Se eliminan líneas que contengan github, compare, http o "Full Changelog"
-							Text(
-								info.notas
-									.split('\n')
-									.where((linea) => 
-										!linea.toLowerCase().contains('github') &&
-										!linea.toLowerCase().contains('compare') &&
-										!linea.toLowerCase().contains('http') &&
-										!linea.toLowerCase().contains('full changelog')
-									)
-									.join('\n')
-									.trim(),
-								style: Theme.of(ctx).textTheme.bodyMedium,
-								textAlign: TextAlign.center,
-							),
-							
-							const SizedBox(height: 20),
-							
+
+							// Notas de la versión (si hay y si no contiene link)
+							if (notasLimpias.isNotEmpty) ...[
+								Align(
+									alignment: Alignment.centerLeft,
+									child: Text('Novedades', style: Theme.of(ctx).textTheme.titleSmall),
+								),
+								const SizedBox(height: 8),
+								Container(
+									width: double.infinity,
+									padding: const EdgeInsets.all(12),
+									decoration: BoxDecoration(
+										color: ctx.surfaceGrey.withOpacity(0.5),
+										borderRadius: BorderRadius.circular(ctx.radiusMd),
+									),
+									child: Text(
+										notasLimpias,
+										style: Theme.of(ctx).textTheme.bodyMedium,
+									),
+								),
+								const SizedBox(height: 24),
+							],
+
 							// Check al final
-							Icon(Icons.check_circle_outline_rounded, color: Colors.green.shade400, size: 28),
+							Icon(Icons.check_circle_outline_rounded, color: Colors.green.shade400, size: 32),
 							const SizedBox(height: 8),
 							Text(
 								'La app se cerrará y reiniciará sola.',
-								style: TextStyle(color: ctx.textGrey, fontSize: 12),
+								style: TextStyle(color: ctx.textGrey, fontSize: 13),
 								textAlign: TextAlign.center,
 							),
 						],
@@ -273,19 +305,17 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	}
 
 	// ==========================================
-	// DESCARGAR E INSTALAR
+	// INSTALAR (Lógica intacta)
 	// ==========================================
 	Future<void> _instalar(_InfoActualizacion info) async {
 		if (kDebugMode) {
-			_mensaje('Modo debug: la instalación está desactivada para no pisar tu build de desarrollo. Pruébala con la versión release.');
+			_mensaje('Modo debug: la instalación está desactivada para no pisar tu build de desarrollo.');
 			return;
 		}
 
 		final carpetaApp = _carpetaApp;
 		if (!await _puedeEscribir(carpetaApp)) {
-			await _mostrarFalla(
-				'La carpeta donde está la aplicación no permite guardar archivos:\n$carpetaApp\n\nMueve la aplicación a una carpeta propia, como Documentos o el Escritorio, y ábrela desde ahí.',
-			);
+			await _mostrarFalla('La carpeta donde está la aplicación no permite guardar archivos:\n$carpetaApp');
 			return;
 		}
 		if (!mounted) return;
@@ -358,6 +388,9 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		}
 	}
 
+	// ==========================================
+	// MÉTODOS AUXILIARES INTACTOS
+	// ==========================================
 	Future<void> _aplicar(Directory origen, String destino, List<_Cambio> cambios) async {
 		final nuevos = <File>[];
 		await for (final e in origen.list(recursive: true, followLinks: false)) {
@@ -477,9 +510,6 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		return e.toString().replaceFirst('Bad state: ', '');
 	}
 
-	// ==========================================
-	// MENSAJES
-	// ==========================================
 	void _mensaje(String texto, {bool error = false}) {
 		ScaffoldMessenger.of(context)
 			..hideCurrentSnackBar()
@@ -497,6 +527,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 
 	Future<void> _mostrarFalla(String motivo) async {
 		if (!mounted) return;
+
 		await showDialog<void>(
 			context: context,
 			builder: (ctx) => AlertDialog(
