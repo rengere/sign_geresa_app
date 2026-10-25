@@ -18,7 +18,6 @@ const String _githubUsuario = githubUsuario;
 const String _githubRepo = githubRepo;
 const Duration _intervaloRevision = Duration(minutes: 30);
 
-/// Los archivos reemplazados se renombran con este sufijo y se borran al reiniciar.
 const String _sufijoRespaldo = '.upd_old';
 const String _carpetaTemporal = '_actualizacion_tmp';
 const String _listaRespaldos = '_respaldos_actualizacion.txt';
@@ -42,8 +41,6 @@ class _Cambio {
 	const _Cambio(this.objetivo, this.respaldo);
 }
 
-/// Está fuera de la clase a propósito: así el hilo secundario solo recibe
-/// dos textos y no arrastra la ventana ni el estado de la app.
 Future<void> _extraerZip(String rutaZip, String rutaDestino) {
 	return Isolate.run(() => extractFileToDisk(rutaZip, rutaDestino));
 }
@@ -84,7 +81,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 	}
 
 	// ==========================================
-	// LIMPIEZA DE RESTOS DE LA ACTUALIZACIÓN ANTERIOR
+	// LIMPIEZA
 	// ==========================================
 	Future<void> _limpiarRestos() async {
 		await Future<void>.delayed(const Duration(seconds: 5));
@@ -183,21 +180,19 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 				backgroundColor: ctx.surfaceWhite,
 				surfaceTintColor: Colors.transparent,
 				shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ctx.radiusLg)),
-				// Tamaño estático del diálogo
 				content: SizedBox(
-					width: 450,
-					height: 400, 
+					width: 420,
 					child: Column(
 						mainAxisSize: MainAxisSize.min,
 						children: [
-							// Icono superior
+							// Icono superior de PC
 							Container(
 								padding: const EdgeInsets.all(16),
 								decoration: BoxDecoration(
 									color: ctx.primaryPurple.withOpacity(0.1),
 									shape: BoxShape.circle,
 								),
-								child: Icon(Icons.system_update_rounded, size: 40, color: ctx.primaryPurple),
+								child: Icon(Icons.desktop_windows_rounded, size: 40, color: ctx.primaryPurple),
 							),
 							const SizedBox(height: 16),
 							Text(
@@ -205,47 +200,57 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 								style: Theme.of(ctx).textTheme.titleLarge,
 								textAlign: TextAlign.center,
 							),
-							const SizedBox(height: 8),
-							// Mostrar versiones (sin GitHub)
-							Container(
-								padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-								decoration: BoxDecoration(
-									color: ctx.surfaceGrey,
-									borderRadius: BorderRadius.circular(20),
-								),
-								child: Text(
-									'De la versión $_versionInstalada a la ${info.version}',
-									style: TextStyle(color: ctx.textGrey, fontSize: 13, fontWeight: FontWeight.w500),
-								),
-							),
-							const SizedBox(height: 16),
+							const SizedBox(height: 20),
 							
-							// Notas de la versión con scroll
-							if (info.notas.isNotEmpty) ...[
-								Align(
-									alignment: Alignment.centerLeft,
-									child: Text('Novedades', style: Theme.of(ctx).textTheme.titleSmall),
-								),
-								const SizedBox(height: 6),
-								Expanded(
-									child: Container(
-										width: double.infinity,
-										padding: const EdgeInsets.all(12),
-										decoration: BoxDecoration(
-											color: ctx.surfaceGrey.withOpacity(0.3),
-											borderRadius: BorderRadius.circular(ctx.radiusSm),
-											border: Border.all(color: ctx.borderColor),
-										),
-										child: SingleChildScrollView(
-											child: Text(info.notas, style: Theme.of(ctx).textTheme.bodyMedium),
+							// Versiones destacadas (Original -> Nueva)
+							Row(
+								mainAxisAlignment: MainAxisAlignment.center,
+								children: [
+									Text(
+										_versionInstalada,
+										style: TextStyle(
+											color: ctx.textGrey,
+											fontSize: 20,
+											fontWeight: FontWeight.w600,
 										),
 									),
-								),
-							] else
-								const Spacer(),
-
-							// Icono de check al final
-							const SizedBox(height: 12),
+									Padding(
+										padding: const EdgeInsets.symmetric(horizontal: 12),
+										child: Icon(Icons.arrow_forward_rounded, color: ctx.primaryPurple, size: 24),
+									),
+									Text(
+										info.version,
+										style: TextStyle(
+											color: ctx.primaryPurple,
+											fontSize: 24,
+											fontWeight: FontWeight.w800,
+										),
+									),
+								],
+							),
+							
+							const SizedBox(height: 24),
+							
+							// Notas de la versión (SIN LINK DE GITHUB)
+							// Se eliminan líneas que contengan github, compare, http o "Full Changelog"
+							Text(
+								info.notas
+									.split('\n')
+									.where((linea) => 
+										!linea.toLowerCase().contains('github') &&
+										!linea.toLowerCase().contains('compare') &&
+										!linea.toLowerCase().contains('http') &&
+										!linea.toLowerCase().contains('full changelog')
+									)
+									.join('\n')
+									.trim(),
+								style: Theme.of(ctx).textTheme.bodyMedium,
+								textAlign: TextAlign.center,
+							),
+							
+							const SizedBox(height: 20),
+							
+							// Check al final
 							Icon(Icons.check_circle_outline_rounded, color: Colors.green.shade400, size: 28),
 							const SizedBox(height: 8),
 							Text(
@@ -490,43 +495,38 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 			);
 	}
 
-	/// Diálogo de respaldo: explica el problema y da las instrucciones.
 	Future<void> _mostrarFalla(String motivo) async {
 		if (!mounted) return;
-		// var copiado = false;
-
 		await showDialog<void>(
 			context: context,
-			builder: (ctx) => StatefulBuilder(
-				builder: (ctx, setLocal) => AlertDialog(
-					backgroundColor: ctx.surfaceWhite,
-					surfaceTintColor: Colors.transparent,
-					shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ctx.radiusLg)),
-					title: const Text('No se pudo actualizar automáticamente'),
-					content: SizedBox(
-						width: 460,
-						child: SingleChildScrollView(
-							child: Column(
-								mainAxisSize: MainAxisSize.min,
-								crossAxisAlignment: CrossAxisAlignment.start,
-								children: [
-									Text(motivo, style: Theme.of(ctx).textTheme.bodyMedium),
-									const SizedBox(height: 16),
-									Text('Puedes actualizar manualmente:', style: Theme.of(ctx).textTheme.titleSmall),
-									const SizedBox(height: 6),
-									Text('1. Abre el enlace de descarga y descarga el archivo ".zip".', style: Theme.of(ctx).textTheme.bodyMedium),
-									const SizedBox(height: 4),
-									Text('2. Extrae el zip en una carpeta propia, como Documentos o el Escritorio.', style: Theme.of(ctx).textTheme.bodyMedium),
-									const SizedBox(height: 4),
-									Text('3. Abre la aplicación desde esa carpeta nueva.', style: Theme.of(ctx).textTheme.bodyMedium),
-								],
-							),
+			builder: (ctx) => AlertDialog(
+				backgroundColor: ctx.surfaceWhite,
+				surfaceTintColor: Colors.transparent,
+				shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ctx.radiusLg)),
+				title: const Text('No se pudo actualizar automáticamente'),
+				content: SizedBox(
+					width: 460,
+					child: SingleChildScrollView(
+						child: Column(
+							mainAxisSize: MainAxisSize.min,
+							crossAxisAlignment: CrossAxisAlignment.start,
+							children: [
+								Text(motivo, style: Theme.of(ctx).textTheme.bodyMedium),
+								const SizedBox(height: 16),
+								Text('Puedes actualizar manualmente:', style: Theme.of(ctx).textTheme.titleSmall),
+								const SizedBox(height: 6),
+								Text('1. Abre el enlace de descarga y descarga el archivo ".zip".', style: Theme.of(ctx).textTheme.bodyMedium),
+								const SizedBox(height: 4),
+								Text('2. Extrae el zip en una carpeta propia, como Documentos o el Escritorio.', style: Theme.of(ctx).textTheme.bodyMedium),
+								const SizedBox(height: 4),
+								Text('3. Abre la aplicación desde esa carpeta nueva.', style: Theme.of(ctx).textTheme.bodyMedium),
+							],
 						),
 					),
-					actions: [
-						ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendido')),
-					],
 				),
+				actions: [
+					ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendido')),
+				],
 			),
 		);
 	}
@@ -539,39 +539,35 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		final info = _nueva;
 		if (info == null) return const SizedBox.shrink();
 
-		return Padding(
-			// Este Padding empuja el botón 10px a la izquierda y 10px abajo
-			padding: const EdgeInsets.only(left: 10, bottom: 10),
-			child: AnimatedBuilder(
-				animation: _pulso,
-				builder: (context, child) {
-					final t = Curves.easeInOut.transform(_pulso.value);
-					return Container(
-						decoration: BoxDecoration(
-							shape: BoxShape.circle,
-							boxShadow: [
-								BoxShadow(
-									color: context.primaryPurple.withValues(alpha: 0.45 * (1 - t)),
-									blurRadius: 6 + 14 * t,
-									spreadRadius: 1 + 5 * t,
-								),
-							],
-						),
-						child: child,
-					);
-				},
-				child: Badge(
-					smallSize: 10,
-					backgroundColor: context.accentOrange,
-					child: FloatingActionButton.small(
-						heroTag: 'btn_actualizar',
-						tooltip: 'Nueva versión ${info.version} disponible',
-						backgroundColor: context.primaryPurple,
-						foregroundColor: Colors.white,
-						elevation: 2,
-						onPressed: _alPresionar,
-						child: const Icon(Icons.browser_updated),
+		return AnimatedBuilder(
+			animation: _pulso,
+			builder: (context, child) {
+				final t = Curves.easeInOut.transform(_pulso.value);
+				return Container(
+					decoration: BoxDecoration(
+						shape: BoxShape.circle,
+						boxShadow: [
+							BoxShadow(
+								color: context.primaryPurple.withValues(alpha: 0.45 * (1 - t)),
+								blurRadius: 6 + 14 * t,
+								spreadRadius: 1 + 5 * t,
+							),
+						],
 					),
+					child: child,
+				);
+			},
+			child: Badge(
+				smallSize: 10,
+				backgroundColor: context.accentOrange,
+				child: FloatingActionButton.small(
+					heroTag: 'btn_actualizar',
+					tooltip: 'Nueva versión ${info.version} disponible',
+					backgroundColor: context.primaryPurple,
+					foregroundColor: Colors.white,
+					elevation: 2,
+					onPressed: _alPresionar,
+					child: const Icon(Icons.browser_updated),
 				),
 			),
 		);

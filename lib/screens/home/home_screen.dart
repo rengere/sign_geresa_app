@@ -122,7 +122,7 @@ class HomeScreen extends StatelessWidget {
 
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFCCFBF1),
-						icono: const Icon(Icons.call_split, size: 40, color: Color(0xFF14B8A6)),
+						icono: const Icon(Icons.format_list_numbered, size: 40, color: Color(0xFF14B8A6)),
 						titulo: 'Foliar PDF',
 						descripcion: 'Añade un numero a un documento PDF.',
 						onTap: () {

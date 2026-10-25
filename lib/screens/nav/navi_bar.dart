@@ -71,13 +71,16 @@ class _NaviBarState extends State<NaviBar> {
 			backgroundColor: context.backgroundLight,
 
 			// btn actualizar
-			floatingActionButton: const UpdateButton(),
+			floatingActionButton: const Padding(
+				padding: EdgeInsets.only(top: 10, right: 10),
+				child: UpdateButton(), 
+			),
 			floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
+			
 			body: Row(
 				children: [
-					// ==========================================
+
 					// SIDEBAR
-					// ==========================================
 					Container(
 						width: 90,
 						margin: const EdgeInsets.all(16),
