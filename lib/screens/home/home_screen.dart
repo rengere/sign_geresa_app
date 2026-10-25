@@ -70,7 +70,7 @@ class HomeScreen extends StatelessWidget {
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFFFEDD5),
 						icono: const Icon(Icons.open_in_new_rounded, size: 40, color: Color(0xFFF97316)),
-						titulo: 'QellQa',
+						titulo: 'Qellqa',
 						descripcion: 'Accede a la aplicación Qellqa desde aquí.',
 						onTap: () {
 							Navigator.push(
@@ -85,9 +85,17 @@ class HomeScreen extends StatelessWidget {
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFCCFBF1),
 						icono: const Icon(Icons.document_scanner_rounded, size: 40, color: Color(0xFF14B8A6)),
-						titulo: 'Escanear Documentos',
-						descripcion: 'Digitaliza tus documentos desde el escáner.',
-						onTap: () {},
+						titulo: 'Dividir PDF',
+						descripcion: 'Divide un documento PDF en varios.',
+						onTap: () {
+							Navigator.push(
+								context,
+								MaterialPageRoute(builder: (context) => const WebView(
+									url: "https://www.ilovepdf.com/es/dividir_pdf",
+									titulo: 'Dividir PDF'
+								)),
+							);
+						},
 					),
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFEDE9FE),
