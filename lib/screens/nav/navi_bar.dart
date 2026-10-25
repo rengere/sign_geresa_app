@@ -72,7 +72,7 @@ class _NaviBarState extends State<NaviBar> {
 
 			// btn actualizar
 			floatingActionButton: const Padding(
-				padding: EdgeInsets.only(top: 10, right: 10),
+				padding: EdgeInsets.only(top: 20, right: 20),
 				child: UpdateButton(), 
 			),
 			floatingActionButtonLocation: FloatingActionButtonLocation.endTop,

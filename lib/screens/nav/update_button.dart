@@ -11,9 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
-// ==========================================
 // CONFIGURACIÓN
-// ==========================================
 const String _githubUsuario = githubUsuario;
 const String _githubRepo = githubRepo;
 const Duration _intervaloRevision = Duration(minutes: 30);
@@ -570,6 +568,8 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 		final info = _nueva;
 		if (info == null) return const SizedBox.shrink();
 
+		// final versionMostrar = info?.version ?? '0.0.0';
+
 		return AnimatedBuilder(
 			animation: _pulso,
 			builder: (context, child) {
@@ -594,6 +594,7 @@ class _UpdateButtonState extends State<UpdateButton> with SingleTickerProviderSt
 				child: FloatingActionButton.small(
 					heroTag: 'btn_actualizar',
 					tooltip: 'Nueva versión ${info.version} disponible',
+					// tooltip: 'Nueva versión $versionMostrar disponible',
 					backgroundColor: context.primaryPurple,
 					foregroundColor: Colors.white,
 					elevation: 2,
