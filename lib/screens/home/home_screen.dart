@@ -99,13 +99,24 @@ class HomeScreen extends StatelessWidget {
 					),
 					ActionCard(
 						iconBackgroundColor: const Color(0xFFEDE9FE),
-						icono: const Icon(Icons.folder_rounded, size: 40, color: Color(0xFF8B5CF6)),
-						titulo: 'Guardar Documentos',
+						icono: const Icon(Icons.email_outlined, size: 40, color: Color(0xFF8B5CF6)),
+						titulo: 'Correo Institucional',
 						descripcion: 'Organiza y guarda tus archivos de forma rápida y segura.',
-						onTap: () {},
+						onTap: () {
+							Navigator.push(
+								context,
+								MaterialPageRoute(builder: (context) => const WebView(
+									url: "https://webmail.diresacusco.gob.pe/",
+									titulo: 'Correo Institucional'
+								)),
+							);
+						},
 					),
 				],
 			),
 		);
 	}
 }
+
+
+
