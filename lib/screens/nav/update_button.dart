@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
+import 'package:firmador_geresa/data/github.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -11,8 +12,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 // ==========================================
 // CONFIGURACIÓN (cámbialo por tus datos)
 // ==========================================
-const String _githubUsuario = 'TU_USUARIO';
-const String _githubRepo = 'TU_REPO';
+const String _githubUsuario = githubUsuario;
+const String _githubRepo = githubRepo;
 const Duration _intervaloRevision = Duration(minutes: 30);
 
 /// Script que reemplaza los archivos cuando la app ya se cerró.
