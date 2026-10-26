@@ -35,6 +35,7 @@ class _NextcloudStgsState extends State<NextcloudStgs> {
 						label: 'Ruta NextCloud',
 						initialValue: _rutaNextCloud,
 						hintText: 'agrega ruta',
+						isFolderPath: true,
 						onSave: (newValue) async {
 							// 2. ACTUALIZAR UI
 							setState(() {

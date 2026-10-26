@@ -5,6 +5,7 @@ import 'package:firmador_geresa/services/signer_service.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart' as mui;
 import 'package:window_manager/window_manager.dart';
 
@@ -22,7 +23,7 @@ void main() async {
 	await SignerService.start();
 
 	// Iniciar la app
-	runApp(const FirmadorApp());
+	runApp(const ProviderScope(child: FirmadorApp()));
 }
 
 class FirmadorApp extends StatefulWidget {

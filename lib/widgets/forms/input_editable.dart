@@ -1,3 +1,4 @@
+import 'package:file_selector/file_selector.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 
@@ -6,6 +7,9 @@ class InputEditable extends StatefulWidget {
 	final String initialValue;
 	final String? hintText;
 	final ValueChanged<String> onSave;
+	
+	// NUEVO PARÁMETRO: Si es true, muestra el botón para elegir carpeta
+	final bool isFolderPath;
 
 	const InputEditable({
 		super.key, 
@@ -13,6 +17,7 @@ class InputEditable extends StatefulWidget {
 		required this.initialValue,
 		required this.onSave,
 		this.hintText,
+		this.isFolderPath = false, // Por defecto es falso (texto normal)
 	});
 
 	@override
@@ -63,6 +68,16 @@ class _InputEditableState extends State<InputEditable> {
 		widget.onSave(_controller.text);
 	}
 
+	// NUEVA FUNCIÓN: Abre el explorador de carpetas
+	Future<void> _seleccionarCarpeta() async {
+		final ruta = await getDirectoryPath();
+		if (ruta != null) {
+			setState(() {
+				_controller.text = ruta;
+			});
+		}
+	}
+
 	@override
 	Widget build(BuildContext context) {
 		return Column(
@@ -81,13 +96,11 @@ class _InputEditableState extends State<InputEditable> {
 				Row(
 					children: [
 						Expanded(
-							// MouseRegion con cursor básico para evitar el efecto hover del TextField
 							child: MouseRegion(
 								cursor: _isEditing ? SystemMouseCursors.text : SystemMouseCursors.basic,
 								child: TextField(
 									controller: _controller,
 									readOnly: !_isEditing,
-									// Desactivamos el foco y el cursor visual cuando no está editando
 									canRequestFocus: _isEditing,
 									showCursor: _isEditing,
 									decoration: InputDecoration(
@@ -103,7 +116,6 @@ class _InputEditableState extends State<InputEditable> {
 											borderRadius: BorderRadius.circular(8),
 											borderSide: BorderSide(color: context.borderColor),
 										),
-										// Mantenemos el borde de focus igual al enabled para que no cambie de color
 										focusedBorder: OutlineInputBorder(
 											borderRadius: BorderRadius.circular(8),
 											borderSide: BorderSide(color: context.borderColor),
@@ -118,6 +130,7 @@ class _InputEditableState extends State<InputEditable> {
 						),
 						const SizedBox(width: 12),
 
+						// BOTÓN DE EDITAR (Solo cuando NO se está editando)
 						if (!_isEditing)
 							IconButton(
 								onPressed: _startEditing,
@@ -130,7 +143,24 @@ class _InputEditableState extends State<InputEditable> {
 								),
 							),
 
+						// BOTONES CUANDO SE ESTÁ EDITANDO
 						if (_isEditing) ...[
+							// NUEVO BOTÓN: Solo aparece si es una ruta de carpeta
+							if (widget.isFolderPath) ...[
+								IconButton(
+									onPressed: _seleccionarCarpeta,
+									icon: const Icon(Icons.folder_open_rounded),
+									tooltip: 'Seleccionar carpeta',
+									color: context.textDark,
+									style: IconButton.styleFrom(
+										backgroundColor: context.surfaceGrey,
+										shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+										side: BorderSide(color: context.borderColor),
+									),
+								),
+								const SizedBox(width: 8),
+							],
+
 							IconButton(
 								onPressed: _cancelEditing,
 								icon: const Icon(Icons.close_rounded),
