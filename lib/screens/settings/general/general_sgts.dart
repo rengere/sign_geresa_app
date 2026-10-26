@@ -11,6 +11,7 @@ class GeneralStgs extends ConsumerWidget {
 	static const List<String> _tarjetasHome = [
 		'Firma ditital GERESA',
 		'Qellqa',
+		'GERESA Cusco - Web',
 		'Correo Institucional',
 		'Convertir Word a PDF',
 		"Unir PDF's",

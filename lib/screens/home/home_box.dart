@@ -1,4 +1,3 @@
-
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 
@@ -14,7 +13,6 @@ class HomeBox extends StatelessWidget {
 	Widget build(BuildContext context) {
 		return Column(
 			children: [
-		
 		
 				Expanded(
 					child: SingleChildScrollView(
@@ -45,6 +43,7 @@ class HomeBox extends StatelessWidget {
 										const SizedBox(height: 10),
 										Text(
 											'Todo lo que necesitas,\nen un solo lugar',
+											// '© 2026 GERESA Cusco\nDesarrollado por DEIT',
 											textAlign: TextAlign.center,
 											style: TextStyle(
 												color: context.textDark,
@@ -56,6 +55,7 @@ class HomeBox extends StatelessWidget {
 										const SizedBox(height: 12),
 										Text(
 											'Selecciona una opción para continuar',
+											// '© 2026 GERESA Cusco | Desarrollado por DEIT',
 											style: TextStyle(
 												color: context.textGrey,
 												fontSize: 16,
@@ -67,7 +67,7 @@ class HomeBox extends StatelessWidget {
 											spacing: 24,
 											runSpacing: 24,
 											alignment: WrapAlignment.center,
-											children: children // grid aqui
+											children: children
 										),
 									],
 								),
@@ -75,6 +75,15 @@ class HomeBox extends StatelessWidget {
 						),
 					),
 				),
+
+				// Text(
+				// 	'Desarrollado por la Dirección de Estadística, Informática y Telecomunicaciones (DEIT) — GERESA Cusco',
+				// 	style: TextStyle(
+				// 		fontSize: 14,
+				// 	),
+				// ),
+
+
 			],
 		);
 	}

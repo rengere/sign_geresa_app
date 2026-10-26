@@ -31,8 +31,15 @@ class HomeScreen extends ConsumerWidget {
 				onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const WebView(url: "https://qellqa.regioncusco.gob.pe/auth", titulo: 'Qellqa'))),
 			),
 			ActionCard(
+				iconBackgroundColor: const Color(0xFFDBEAFE),
+				icono: const Icon(Icons.home_filled, size: 40, color: Color(0xFF3B82F6)),
+				titulo: 'GERESA Cusco - Web',
+				descripcion: 'Accede al sitio web oficial de GERESA Cusco.',
+				onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const WebView(url: "https://diresacusco.gob.pe/", titulo: 'GERESA Cusco - Web'))),
+			),
+			ActionCard(
 				iconBackgroundColor: const Color(0xFFEDE9FE),
-				icono: const Icon(Icons.email_outlined, size: 40, color: Color(0xFF8B5CF6)),
+				icono: const Icon(Icons.alternate_email, size: 40, color: Color(0xFF8B5CF6)),
 				titulo: 'Correo Institucional',
 				descripcion: 'Organiza y guarda tus archivos de forma rápida y segura.',
 				onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const WebView(url: "https://webmail.diresacusco.gob.pe/", titulo: 'Correo Institucional'))),
