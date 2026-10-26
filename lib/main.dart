@@ -9,76 +9,72 @@ import 'package:material_ui/material_ui.dart' as mui;
 import 'package:window_manager/window_manager.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+	WidgetsFlutterBinding.ensureInitialized();
 
-  // NUEVO: necesario para que onWindowClose (abajo) funcione. Es lo
-  // único que resuelve de forma confiable el cierre con el botón "X" en
-  // Windows — didChangeAppLifecycleState solo, como tenías antes, no
-  // siempre dispara 'detached' en escritorio, por eso la API no moría.
-  await windowManager.ensureInitialized();
-  await windowManager.setPreventClose(true);
+	// Necesario para que onWindowClose (abajo) funcione: es lo que
+	await windowManager.ensureInitialized();
+	await windowManager.setPreventClose(true);
 
-  // Inicializar JSON Storage
-  await JsonStorage.init();
+	// Inicializar JSON Storage
+	await JsonStorage.init();
 
-  // Iniciar la API de Java en segundo plano
-  await SignerService.start();
+	// Iniciar la API de Java en segundo plano
+	await SignerService.start();
 
-  // Iniciar la app
-  runApp(const FirmadorApp());
+	// Iniciar la app
+	runApp(const FirmadorApp());
 }
 
 class FirmadorApp extends StatefulWidget {
-  const FirmadorApp({super.key});
+	const FirmadorApp({super.key});
 
-  @override
-  State<FirmadorApp> createState() => _FirmadorAppState();
+	@override
+	State<FirmadorApp> createState() => _FirmadorAppState();
 }
 
-class _FirmadorAppState extends State<FirmadorApp>
-    with WidgetsBindingObserver, WindowListener {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    windowManager.addListener(this); // NUEVO
-  }
+class _FirmadorAppState extends State<FirmadorApp> with WidgetsBindingObserver, WindowListener {
+	@override
+	void initState() {
+		super.initState();
+		WidgetsBinding.instance.addObserver(this);
+		windowManager.addListener(this);
+	}
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    windowManager.removeListener(this); // NUEVO
-    super.dispose();
-  }
+	@override
+	void dispose() {
+		WidgetsBinding.instance.removeObserver(this);
+		windowManager.removeListener(this);
+		super.dispose();
+	}
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached) {
-      SignerService.stop();
-    }
-  }
+	@override
+	void didChangeAppLifecycleState(AppLifecycleState state) {
+		if (state == AppLifecycleState.detached) {
+			SignerService.stop();
+		}
+	}
 
-  // NUEVO: este es el que de verdad va a matar la API cuando le des a
-  // la X de la ventana.
-  @override
-  void onWindowClose() async {
-    SignerService.stop();
-    await windowManager.destroy();
-  }
+	// Este es el que de verdad mata la API cuando se cierra la ventana
+	// con el botón "X".
+	@override
+	void onWindowClose() async {
+		SignerService.stop();
+		await windowManager.destroy();
+	}
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      title: 'Firmador GERESA Cusco',
-      localizationsDelegates: const [
-        ...GlobalMaterialLocalizations.delegates,
-        ...mui.GlobalMaterialLocalizations.delegates,
-      ],
-      supportedLocales: const [Locale('es')],
-      locale: const Locale('es'),
-      home: const NaviBar(),
-    );
-  }
+	@override
+	Widget build(BuildContext context) {
+		return MaterialApp(
+			debugShowCheckedModeBanner: false,
+			theme: AppTheme.lightTheme,
+			title: 'Firmador GERESA Cusco',
+			localizationsDelegates: const [
+				...GlobalMaterialLocalizations.delegates,
+				...mui.GlobalMaterialLocalizations.delegates,
+			],
+			supportedLocales: const [Locale('es')],
+			locale: const Locale('es'),
+			home: const NaviBar(),
+		);
+	}
 }
