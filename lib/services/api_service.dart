@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
-/// Cliente del backend local (Java) que corre en http://127.0.0.1:8000
+/// Cliente del backend local (Java) que corre en http://127.0.0.1:8426
 class ApiService {
-	static const String baseUrl = 'http://127.0.0.1:8000';
+	static const String baseUrl = 'http://127.0.0.1:8426';
 
 	/// Firma el PDF con el PIN del DNIe. Devuelve los bytes del PDF firmado.
 	Future<Uint8List> firmar({
