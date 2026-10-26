@@ -14,6 +14,7 @@ class GeneralStgs extends ConsumerWidget {
 		'GERESA Cusco - Web',
 		'Correo Institucional',
 		'Convertir Word a PDF',
+		'Convertir Imagenes a PDF',
 		"Unir PDF's",
 		'Dividir PDF',
 		'Foliar PDF',

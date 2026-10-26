@@ -83,10 +83,15 @@ class _NaviBarState extends State<NaviBar> {
 					// SIDEBAR
 					Container(
 						width: 90,
-						margin: const EdgeInsets.all(16),
+						margin: const EdgeInsets.only(top: 16, bottom: 16, left: 16, right: 16), // comentar esto
 						decoration: BoxDecoration(
 							color: context.primaryPurple,
-							borderRadius: BorderRadius.circular(32),
+								borderRadius: BorderRadius.circular(32), // comentar esto
+								// activar esto
+								// borderRadius: const BorderRadius.only(
+								// 	topRight: Radius.circular(32),
+								// 	bottomRight: Radius.circular(32),
+								// ),
 							boxShadow: AppTheme.shadowMd,
 						),
 						child: Column(
@@ -136,7 +141,7 @@ class _NaviBarState extends State<NaviBar> {
 					// ==========================================
 					Expanded(
 						child: Container(
-							margin: const EdgeInsets.only(top: 16, right: 16, bottom: 16),
+							
 							decoration: BoxDecoration(
 								color: context.surfaceWhite,
 								borderRadius: BorderRadius.circular(32),

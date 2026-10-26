@@ -42,8 +42,8 @@ class HomeBox extends StatelessWidget {
 										),
 										const SizedBox(height: 10),
 										Text(
-											'Todo lo que necesitas,\nen un solo lugar',
-											// '© 2026 GERESA Cusco\nDesarrollado por DEIT',
+											'Plataforma\nFirmaGeresa',
+											// 'Todo lo que necesitas,\nen un solo lugar',
 											textAlign: TextAlign.center,
 											style: TextStyle(
 												color: context.textDark,
@@ -54,8 +54,8 @@ class HomeBox extends StatelessWidget {
 										),
 										const SizedBox(height: 12),
 										Text(
-											'Selecciona una opción para continuar',
-											// '© 2026 GERESA Cusco | Desarrollado por DEIT',
+											'Dirección de Estadística, Informática y Telecomunicaciones',
+											// 'Selecciona una opción para continuar',
 											style: TextStyle(
 												color: context.textGrey,
 												fontSize: 16,

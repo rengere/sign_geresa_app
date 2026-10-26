@@ -60,6 +60,15 @@ class HomeScreen extends ConsumerWidget {
 				descripcion: 'Convierte tus documentos de Word a formato PDF.',
 				onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const WebView(url: "https://www.ilovepdf.com/es/word_a_pdf", titulo: 'Convertir Word a PDF'))),
 			),
+
+			ActionCard(
+				iconBackgroundColor: const Color(0xFFF3E8FF),
+				icono: const Icon(Icons.image, size: 40, color: Color(0xFF8B5CF6)),
+				titulo: "Convertir Imagenes a PDF",
+				descripcion: 'Convierte tus imagenes a formato PDF.',
+				onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const WebView(url: "https://www.ilovepdf.com/es/jpg_a_pdf", titulo: 'Convertir Imagenes a PDF'))),
+			),
+
 			ActionCard(
 				iconBackgroundColor: const Color(0xFFF3E8FF),
 				icono: const Icon(Icons.copy_all_rounded, size: 40, color: Color(0xFF8B5CF6)),
