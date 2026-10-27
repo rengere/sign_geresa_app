@@ -144,10 +144,10 @@ class _NaviBarState extends State<NaviBar> {
 							
 							decoration: BoxDecoration(
 								color: context.surfaceWhite,
-								borderRadius: BorderRadius.circular(32),
+								// borderRadius: BorderRadius.circular(32),
 							),
 							child: ClipRRect(
-								borderRadius: BorderRadius.circular(32),
+								// borderRadius: BorderRadius.circular(32),
 								child: Navigator(
 									key: _contentNavigatorKey,
 									onGenerateRoute: (settings) {

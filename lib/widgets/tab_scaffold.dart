@@ -47,7 +47,7 @@ class TabScaffold extends StatelessWidget {
 								child: FractionallySizedBox(
 									widthFactor: 0.7,
 									child: Container(
-										height: 40,
+										height: 50,
 										decoration: BoxDecoration(
 											color: context.surfaceGrey,
 											borderRadius: BorderRadius.circular(context.radiusLg),
@@ -57,31 +57,34 @@ class TabScaffold extends StatelessWidget {
 												width: 1,
 											),
 										),
-										child: ClipRRect(
-											borderRadius: BorderRadius.circular(context.radiusLg),
-											child: TabBar(
-												indicator: const BoxDecoration(
-													color: AppTheme.primaryPurple,
-													borderRadius: BorderRadius.zero,
+										child: Padding(
+											padding: const EdgeInsets.only(bottom: 15),
+											child: ClipRRect(
+												borderRadius: BorderRadius.circular(context.radiusLg),
+												child: TabBar(
+													indicator: const BoxDecoration(
+														color: AppTheme.primaryPurple,
+														borderRadius: BorderRadius.zero,
+													),
+													indicatorSize: TabBarIndicatorSize.tab,
+													dividerColor: Colors.transparent,
+													labelColor: Colors.white,
+													unselectedLabelColor: AppTheme.textGrey,
+													labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+													unselectedLabelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+													tabs: children.map((tab) {
+														return Tab(
+															child: Row(
+																mainAxisAlignment: MainAxisAlignment.center,
+																children: [
+																	Icon(tab.icon, size: 20),
+																	const SizedBox(width: 8),
+																	Text(tab.title),
+																],
+															),
+														);
+													}).toList(),
 												),
-												indicatorSize: TabBarIndicatorSize.tab,
-												dividerColor: Colors.transparent,
-												labelColor: Colors.white,
-												unselectedLabelColor: AppTheme.textGrey,
-												labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-												unselectedLabelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-												tabs: children.map((tab) {
-													return Tab(
-														child: Row(
-															mainAxisAlignment: MainAxisAlignment.center,
-															children: [
-																Icon(tab.icon, size: 20),
-																const SizedBox(width: 8),
-																Text(tab.title),
-															],
-														),
-													);
-												}).toList(),
 											),
 										),
 									),

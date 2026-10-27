@@ -1,3 +1,4 @@
+import 'package:firmador_geresa/screens/settings/firma_geresa.dart';
 import 'package:firmador_geresa/screens/settings/general/general_sgts.dart';
 import 'package:firmador_geresa/screens/settings/nxc/nextcloud_sgts.dart';
 import 'package:firmador_geresa/screens/settings/settings_box.dart';
@@ -20,6 +21,12 @@ class Settings extends StatelessWidget {
 					title: 'Nextcloud',
 					icon: Icons.cloud_download,
 					screen: NextcloudStgs(),
+				),
+
+				SettingsTabItem(
+					title: 'Nextcloud',
+					icon: Icons.cloud_download,
+					screen: FirmaGeresa(),
 				),
 				// SettingsTabItem(
 				// 	title: 'Data',
