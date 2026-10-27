@@ -6,21 +6,14 @@ import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 import 'package:image/image.dart' as img;
 import 'package:file_picker/file_picker.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
+import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart';
 
-enum PosicionFirma {
-	arribaIzquierda,
-	arribaCentro,
-	arribaDerecha,
-	abajoIzquierda,
-	abajoCentro,
-	abajoDerecha,
-}
+enum PosicionFirma { arribaIzquierda, arribaCentro, arribaDerecha, abajoIzquierda, abajoCentro, abajoDerecha }
 
 class DocumentoReferencial {
 	final String id;
 	final String nombre;
 	final Uint8List bytes;
-
 	DocumentoReferencial({required this.id, required this.nombre, required this.bytes});
 }
 
@@ -52,7 +45,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	bool _procesando = false;
 
 	static const double _anchoFirma = 230;
-	static const double _altoFirma = 65;
+	static const double _altoFirma = 72; 
 	static const double _lado = 54; 
 	static const double _margen = 5; 
 
@@ -66,23 +59,35 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	List<DocumentoReferencial> _referenciales = [];
 	Offset? _posicionAutoElegida;
 
+	// Variables para los datos de configuración
+	String _motivoSeleccionado = 'Soy el autor del documento';
+	String? _cargoSeleccionado;
+	List<String> _motivosDisponibles = [];
+	List<String> _cargosDisponibles = [];
+
 	@override
 	void initState() {
 		super.initState();
+		_cargarConfiguracionFirma();
 		_actualizarDocumentoUnido();
 	}
 
-	// ---------- Lógica de Unión de PDFs ----------
+	void _cargarConfiguracionFirma() {
+		final motivosExtra = (JsonStorage.getJson('firma_motivos_extra') as List?)?.cast<String>() ?? [];
+		_motivosDisponibles = ['Soy el autor del documento', 'Señal de conformidad', 'Por encargo', ...motivosExtra];
+		_cargosDisponibles = (JsonStorage.getJson('firma_cargos') as List?)?.cast<String>() ?? [];
+		
+		if (_cargosDisponibles.isNotEmpty) {
+			_cargoSeleccionado = _cargosDisponibles.first;
+		}
+	}
 
+	// ---------- Lógica de Unión de PDFs ----------
 	void _actualizarDocumentoUnido() async {
 		setState(() => _procesando = true);
 		try {
 			final documentoFinal = sf.PdfDocument();
-			final List<Uint8List> todosLosPdfs = [
-				widget.pdfBytes,
-				..._referenciales.map((r) => r.bytes),
-			];
-
+			final List<Uint8List> todosLosPdfs = [widget.pdfBytes, ..._referenciales.map((r) => r.bytes)];
 			sf.PdfSection? seccion;
 
 			for (final bytesPdf in todosLosPdfs) {
@@ -90,13 +95,11 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				for (int i = 0; i < documentoFuente.pages.count; i++) {
 					final paginaFuente = documentoFuente.pages[i];
 					final template = paginaFuente.createTemplate();
-					
 					if (seccion == null || seccion.pageSettings.size != template.size) {
 						seccion = documentoFinal.sections!.add();
 						seccion.pageSettings.size = template.size;
 						seccion.pageSettings.margins.all = 0;
 					}
-					
 					seccion.pages.add().graphics.drawPdfTemplate(template, const Offset(0, 0));
 				}
 				documentoFuente.dispose();
@@ -116,20 +119,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	Future<void> _agregarReferencial() async {
-		final result = await FilePicker.platform.pickFiles(
-			type: FileType.custom,
-			allowedExtensions: ['pdf'],
-			withData: true,
-		);
-
+		final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf'], withData: true);
 		if (result != null && result.files.single.bytes != null) {
-			final nuevo = DocumentoReferencial(
-				id: DateTime.now().millisecondsSinceEpoch.toString(),
-				nombre: result.files.single.name,
-				bytes: result.files.single.bytes!,
-			);
 			setState(() {
-				_referenciales.add(nuevo);
+				_referenciales.add(DocumentoReferencial(
+					id: DateTime.now().millisecondsSinceEpoch.toString(),
+					nombre: result.files.single.name,
+					bytes: result.files.single.bytes!,
+				));
 				_actualizarDocumentoUnido();
 			});
 		}
@@ -143,7 +140,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	// ---------- Utilidades de Posición ----------
-
 	Offset _limitar(Offset p, int pagina) {
 		if (_tamanos.isEmpty) return p;
 		final s = _tamanos[pagina - 1];
@@ -211,10 +207,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 	void _alSoltar(DragTargetDetails<Uint8List> details) {
 		if (!_pdfController.isReady || _tamanos.isEmpty) return;
-
 		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
 		if (box == null) return;
-
 		final centroGlobal = details.offset + const Offset(_anchoFirma / 2, _altoFirma / 2);
 		final local = box.globalToLocal(centroGlobal);
 		final inversa = Matrix4.inverted(_pdfController.value);
@@ -228,10 +222,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			final dx = math.max(math.max(r.left - doc.dx, 0.0), doc.dx - r.right);
 			final dy = math.max(math.max(r.top - doc.dy, 0.0), doc.dy - r.bottom);
 			final d = dx * dx + dy * dy;
-			if (d < mejor) {
-				mejor = d;
-				idx = i;
-			}
+			if (d < mejor) { mejor = d; idx = i; }
 		}
 
 		final rect = layouts[idx];
@@ -239,48 +230,13 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		final cx = (doc.dx - rect.left) / rect.width;
 		final cy = (doc.dy - rect.top) / rect.height;
 
-		final pos = Offset(
-			cx - (_anchoFirma / size.width) / 2,
-			cy - (_altoFirma / size.height) / 2,
-		);
-
 		setState(() {
 			_paginaFirma = idx + 1;
-			_posicionPorcentual = _limitar(pos, idx + 1);
+			_posicionPorcentual = _limitar(Offset(cx - (_anchoFirma / size.width) / 2, cy - (_altoFirma / size.height) / 2), idx + 1);
 		});
 	}
 
-	List<String> _calcularNombreLineas(String nombre) {
-		final textoFormateado = nombre.trim().split(' ').map((palabra) {
-			if (palabra.isEmpty) return '';
-			return palabra[0].toUpperCase() + palabra.substring(1).toLowerCase();
-		}).join(' ');
-
-		if (textoFormateado.length <= 22) return [textoFormateado];
-
-		final palabras = textoFormateado.split(' ');
-		if (palabras.length == 1) return [textoFormateado];
-
-		int mejorCorte = -1;
-		int largoActual = 0;
-
-		for (int i = 0; i < palabras.length; i++) {
-			largoActual += palabras[i].length + 1;
-			if (largoActual > 22) {
-				mejorCorte = i;
-				break;
-			}
-		}
-
-		if (mejorCorte <= 0) return [textoFormateado];
-		return [
-			palabras.sublist(0, mejorCorte).join(' '),
-			palabras.sublist(mejorCorte).join(' ')
-		];
-	}
-
 	// ---------- Confirmar ----------
-
 	Future<void> _confirmar() async {
 		if (_modoManual && _posicionPorcentual == null) return;
 		if (!_modoManual && _posicionAutoElegida == null) return;
@@ -297,10 +253,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			final bitmap = sf.PdfBitmap(img.encodePng(decoded));
 
 			document = sf.PdfDocument(inputBytes: _documentoUnido);
-			
-			final paginasAProcesar = _modoManual 
-				? [_paginaFirma - 1] 
-				: List.generate(document.pages.count, (index) => index); 
+			final paginasAProcesar = _modoManual ? [_paginaFirma - 1] : List.generate(document.pages.count, (index) => index); 
 
 			for (final index in paginasAProcesar) {
 				final page = document.pages[index];
@@ -313,45 +266,46 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				final ratio = decoded.width / decoded.height;
 				double w = _lado, h = _lado;
 				if (ratio > 1) { h = _lado / ratio; } else { w = _lado * ratio; }
-				g.drawImage(
-					bitmap,
-					Rect.fromLTWH(x + (_lado - w) / 2, y + (_altoFirma - h) / 2, w, h),
-				);
+				g.drawImage(bitmap, Rect.fromLTWH(x + (_lado - w) / 2, y + (_altoFirma - h) / 2, w, h));
 
 				final fuente = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 6.5);
-				final negrita = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 8, style: sf.PdfFontStyle.bold);
 				final negro = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
 				final tx = x + _lado + 8;
 
-				final lineasNombre = _calcularNombreLineas(widget.nombreFirmante);
-				final esDobleLinea = lineasNombre.length > 1;
+				double startY = y + 8; // Y dinámico
 
-				g.drawString('Firmado digitalmente por:', fuente, brush: negro, bounds: Rect.fromLTWH(tx, y + 8, 0, 0));
-				g.drawString(lineasNombre[0], negrita, brush: negro, bounds: Rect.fromLTWH(tx, y + (esDobleLinea ? 15 : 19), 0, 0));
-				
-				if (esDobleLinea) {
-					g.drawString(lineasNombre[1], negrita, brush: negro, bounds: Rect.fromLTWH(tx, y + 24, 0, 0));
-					g.drawString('FIR (DNI ${widget.dniFirmante}) hard', fuente, brush: negro, bounds: Rect.fromLTWH(tx, y + 33, 0, 0));
-					g.drawString('Fecha: $fechaStr - $horaStr', fuente, brush: negro, bounds: Rect.fromLTWH(tx, y + 41, 0, 0));
-					g.drawString('Folios: $_totalPaginas', fuente, brush: negro, bounds: Rect.fromLTWH(tx, y + 49, 0, 0));
-				} else {
-					g.drawString('FIR (DNI ${widget.dniFirmante}) hard', fuente, brush: negro, bounds: Rect.fromLTWH(tx, y + 29, 0, 0));
-					g.drawString('Fecha: $fechaStr - $horaStr', fuente, brush: negro, bounds: Rect.fromLTWH(tx, y + 37, 0, 0));
-					g.drawString('Folios: $_totalPaginas', fuente, brush: negro, bounds: Rect.fromLTWH(tx, y + 45, 0, 0));
+				// 1. Encabezado
+				g.drawString('Firmado digitalmente por:', fuente, brush: negro, bounds: Rect.fromLTWH(tx, startY, 0, 0));
+				startY += 7.5;
+
+				// 2. Nombre (Sin negrita, 1 línea)
+				g.drawString(widget.nombreFirmante, fuente, brush: negro, bounds: Rect.fromLTWH(tx, startY, 0, 0));
+				startY += 7.5;
+
+				// 3. Cargo (Solo si existe)
+				if (_cargoSeleccionado != null && _cargoSeleccionado!.isNotEmpty) {
+					g.drawString(_cargoSeleccionado!, fuente, brush: negro, bounds: Rect.fromLTWH(tx, startY, 0, 0));
+					startY += 7.5;
 				}
+
+				// 4. DNI
+				g.drawString('FIR (DNI ${widget.dniFirmante}) hard', fuente, brush: negro, bounds: Rect.fromLTWH(tx, startY, 0, 0));
+				startY += 7.5;
+
+				// 5. Fecha y Folios juntos
+				g.drawString('F: $fechaStr - $horaStr | Nf: $_totalPaginas', fuente, brush: negro, bounds: Rect.fromLTWH(tx, startY, 0, 0));
+				startY += 7.5;
+
+				// 6. Motivo de firma (Al final)
+				g.drawString('Motivo: $_motivoSeleccionado', fuente, brush: negro, bounds: Rect.fromLTWH(tx, startY, 0, 0));
 			}
 
 			final List<int> resultado = await document.save();
-
 			if (!mounted) return;
 			Navigator.of(context).pop(Uint8List.fromList(resultado));
 		} catch (e) {
 			debugPrint('[EditorFirma] Error: $e');
-			if (mounted) {
-				ScaffoldMessenger.of(context).showSnackBar(
-					SnackBar(content: Text('Error al insertar la firma: $e')),
-				);
-			}
+			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
 		} finally {
 			document?.dispose();
 			if (mounted) setState(() => _procesando = false);
@@ -359,25 +313,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	// ---------- UI ----------
-
-	Widget _imagenFirma({double? size}) => Image.memory(
-				widget.imagenFirmaBytes,
-				width: size ?? _lado,
-				height: size ?? _lado,
-				fit: BoxFit.contain,
-				filterQuality: FilterQuality.high,
-			);
+	Widget _imagenFirma({double? size}) => Image.memory(widget.imagenFirmaBytes, width: size ?? _lado, height: size ?? _lado, fit: BoxFit.contain, filterQuality: FilterQuality.high);
 
 	Widget _firmaVisual() {
 		final ahora = DateTime.now();
 		final fechaStr = '${ahora.day.toString().padLeft(2, '0')}/${ahora.month.toString().padLeft(2, '0')}/${ahora.year}';
 		final horaStr = '${ahora.hour.toString().padLeft(2, '0')}:${ahora.minute.toString().padLeft(2, '0')}';
 		
-		const estiloNormal = TextStyle(fontSize: 6.5, color: Colors.black, height: 1.1);
-		const estiloNegrita = TextStyle(fontSize: 8, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1);
-
-		final lineasNombre = _calcularNombreLineas(widget.nombreFirmante);
-		final esDobleLinea = lineasNombre.length > 1;
+		const estilo = TextStyle(fontSize: 6.5, color: Colors.black, height: 1.1);
 
 		return SizedBox(
 			width: _anchoFirma,
@@ -392,12 +335,13 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 							mainAxisAlignment: MainAxisAlignment.center,
 							crossAxisAlignment: CrossAxisAlignment.start,
 							children: [
-								const Text('Firmado digitalmente por:', style: estiloNormal),
-								Text(lineasNombre[0], style: estiloNegrita),
-								if (esDobleLinea) Text(lineasNombre[1], style: estiloNegrita),
-								Text('FIR (DNI ${widget.dniFirmante}) hard', style: estiloNormal),
-								Text('Fecha: $fechaStr - $horaStr', style: estiloNormal),
-								Text('Folios: $_totalPaginas', style: estiloNormal),
+								const Text('Firmado digitalmente por:', style: estilo),
+								Text(widget.nombreFirmante, style: estilo),
+								if (_cargoSeleccionado != null && _cargoSeleccionado!.isNotEmpty)
+									Text(_cargoSeleccionado!, style: estilo),
+								Text('FIR (DNI ${widget.dniFirmante}) hard', style: estilo),
+								Text('F: $fechaStr - $horaStr | Nf: $_totalPaginas', style: estilo),
+								Text('Motivo: $_motivoSeleccionado', style: estilo),
 							],
 						),
 					),
@@ -415,11 +359,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				onTap: () => _elegirPosicionAuto(p),
 				child: Padding(
 					padding: const EdgeInsets.all(6),
-					child: Icon(
-						seleccionado ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
-						size: 22,
-						color: seleccionado ? context.primaryPurple : context.textGrey,
-					),
+					child: Icon(seleccionado ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded, size: 22, color: seleccionado ? context.primaryPurple : context.textGrey),
 				),
 			),
 		);
@@ -429,34 +369,21 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		return Container(
 			margin: const EdgeInsets.only(top: 16),
 			padding: const EdgeInsets.all(12),
-			decoration: BoxDecoration(
-				color: context.surfaceGrey,
-				borderRadius: BorderRadius.circular(context.radiusMd),
-				border: Border.all(color: context.borderColor),
-			),
+			decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
 			child: Column(
 				children: [
-					Text(
-						'Posición en la página',
-						style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.textGrey),
-					),
+					Text('Posición en la página', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.textGrey)),
 					const SizedBox(height: 8),
-					Row(
-						mainAxisAlignment: MainAxisAlignment.spaceBetween,
-						children: [
-							_opcionPosicion(PosicionFirma.arribaIzquierda, 'Arriba izquierda'),
-							_opcionPosicion(PosicionFirma.arribaCentro, 'Arriba centro'),
-							_opcionPosicion(PosicionFirma.arribaDerecha, 'Arriba derecha'),
-						],
-					),
-					Row(
-						mainAxisAlignment: MainAxisAlignment.spaceBetween,
-						children: [
-							_opcionPosicion(PosicionFirma.abajoIzquierda, 'Abajo izquierda'),
-							_opcionPosicion(PosicionFirma.abajoCentro, 'Abajo centro'),
-							_opcionPosicion(PosicionFirma.abajoDerecha, 'Abajo derecha'),
-						],
-					),
+					Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+						_opcionPosicion(PosicionFirma.arribaIzquierda, 'Arriba izquierda'),
+						_opcionPosicion(PosicionFirma.arribaCentro, 'Arriba centro'),
+						_opcionPosicion(PosicionFirma.arribaDerecha, 'Arriba derecha'),
+					]),
+					Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+						_opcionPosicion(PosicionFirma.abajoIzquierda, 'Abajo izquierda'),
+						_opcionPosicion(PosicionFirma.abajoCentro, 'Abajo centro'),
+						_opcionPosicion(PosicionFirma.abajoDerecha, 'Abajo derecha'),
+					]),
 				],
 			),
 		);
@@ -467,61 +394,32 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			color: context.surfaceWhite,
 			elevation: 2,
 			borderRadius: BorderRadius.circular(context.radiusMd),
-			child: IconButton(
-				icon: Icon(icono, size: 20),
-				tooltip: tooltip,
-				color: context.textDark,
-				onPressed: onTap,
-			),
+			child: IconButton(icon: Icon(icono, size: 20), tooltip: tooltip, color: context.textDark, onPressed: onTap),
 		);
 	}
 
 	Widget _documentosSidebar() {
 		return Container(
 			width: 220,
-			decoration: BoxDecoration(
-				color: context.surfaceGrey.withValues(alpha: 0.5),
-				border: Border(right: BorderSide(color: context.borderColor)),
-			),
+			decoration: BoxDecoration(color: context.surfaceGrey.withValues(alpha: 0.5), border: Border(right: BorderSide(color: context.borderColor))),
 			child: Column(
 				children: [
-					Container(
-						padding: const EdgeInsets.all(16),
-						child: Text(
-							'Documentos',
-							style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark),
-						),
-					),
-					
-					// Documento principal (fijo)
+					Container(padding: const EdgeInsets.all(16), child: Text('Documentos', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
 					Container(
 						margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
 						padding: const EdgeInsets.all(8),
-						decoration: BoxDecoration(
-							color: context.surfaceWhite,
-							borderRadius: BorderRadius.circular(8),
-							border: Border.all(color: context.primaryPurple),
-						),
+						decoration: BoxDecoration(color: context.surfaceWhite, borderRadius: BorderRadius.circular(8), border: Border.all(color: context.primaryPurple)),
 						child: Row(
 							children: [
 								Icon(Icons.lock_outline, size: 20, color: context.primaryPurple),
 								const SizedBox(width: 8),
-								Expanded(
-									child: Text(
-										widget.nombreArchivo,
-										maxLines: 2,
-										overflow: TextOverflow.ellipsis,
-										style: TextStyle(fontSize: 12, color: context.textDark),
-									),
-								),
+								Expanded(child: Text(widget.nombreArchivo, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: context.textDark))),
 							],
 						),
 					),
-
-					// Lista de documentos referenciales (arrastrables)
 					Expanded(
 						child: ReorderableListView.builder(
-							buildDefaultDragHandles: false, // Ocultar el icono de arrastre por defecto
+							buildDefaultDragHandles: false, 
 							itemCount: _referenciales.length,
 							onReorder: (oldIndex, newIndex) {
 								setState(() {
@@ -537,33 +435,13 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 									key: ValueKey(doc.id),
 									margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
 									padding: const EdgeInsets.all(8),
-									decoration: BoxDecoration(
-										color: context.surfaceWhite,
-										borderRadius: BorderRadius.circular(8),
-										border: Border.all(color: context.borderColor),
-									),
+									decoration: BoxDecoration(color: context.surfaceWhite, borderRadius: BorderRadius.circular(8), border: Border.all(color: context.borderColor)),
 									child: Row(
 										children: [
-											// El arrastre solo se activa si tocas el icono de la izquierda
-											ReorderableDragStartListener(
-												index: index,
-												child: Icon(Icons.drag_indicator, size: 20, color: context.textGrey),
-											),
+											ReorderableDragStartListener(index: index, child: Icon(Icons.drag_indicator, size: 20, color: context.textGrey)),
 											const SizedBox(width: 8),
-											Expanded(
-												child: Text(
-													doc.nombre,
-													maxLines: 2,
-													overflow: TextOverflow.ellipsis,
-													style: TextStyle(fontSize: 12, color: context.textDark),
-												),
-											),
-											IconButton(
-												icon: const Icon(Icons.close, size: 16, color: Colors.red),
-												onPressed: () => _eliminarReferencial(doc.id),
-												padding: EdgeInsets.zero,
-												constraints: const BoxConstraints(),
-											),
+											Expanded(child: Text(doc.nombre, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: context.textDark))),
+											IconButton(icon: const Icon(Icons.close, size: 16, color: Colors.red), onPressed: () => _eliminarReferencial(doc.id), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
 										],
 									),
 								);
@@ -579,24 +457,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	Widget build(BuildContext context) {
 		return Scaffold(
 			backgroundColor: context.backgroundLight,
-			appBar: AppBar(
-				title: const Text('Firma del documento'),
-				elevation: 0,
-				backgroundColor: context.surfaceWhite,
-				foregroundColor: context.textDark,
-			),
+			appBar: AppBar(title: const Text('Firma del documento'), elevation: 0, backgroundColor: context.surfaceWhite, foregroundColor: context.textDark),
 			body: Row(
 				children: [
 					if (_referenciales.isNotEmpty) _documentosSidebar(),
-					
 					Expanded(
 						child: Container(
 							margin: const EdgeInsets.all(24),
-							decoration: BoxDecoration(
-								color: context.surfaceGrey,
-								borderRadius: BorderRadius.circular(context.radiusLg),
-								border: Border.all(color: context.borderColor),
-							),
+							decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusLg), border: Border.all(color: context.borderColor)),
 							child: ClipRRect(
 								borderRadius: BorderRadius.circular(context.radiusLg),
 								child: Stack(
@@ -614,9 +482,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 														setState(() {
 															_totalPaginas = document.pages.length;
 															_tamanos = document.pages.map((p) => Size(p.width, p.height)).toList();
-															if (_modoManual && _posicionPorcentual != null) {
-																_posicionPorcentual = _limitar(_posicionPorcentual!, _paginaFirma);
-															}
+															if (_modoManual && _posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _paginaFirma);
 														});
 													},
 													pageOverlaysBuilder: (context, pageRect, page) {
@@ -630,10 +496,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																	child: GestureDetector(
 																		onPanUpdate: (details) {
 																			setState(() {
-																				final nuevo = Offset(
-																					_posicionPorcentual!.dx + details.delta.dx / pageRect.width,
-																					_posicionPorcentual!.dy + details.delta.dy / pageRect.height,
-																				);
+																				final nuevo = Offset(_posicionPorcentual!.dx + details.delta.dx / pageRect.width, _posicionPorcentual!.dy + details.delta.dy / pageRect.height);
 																				_posicionPorcentual = _limitar(nuevo, _paginaFirma);
 																			});
 																		},
@@ -642,10 +505,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																			child: SizedBox(
 																				width: _anchoFirma * escala,
 																				height: _altoFirma * escala,
-																				child: FittedBox(
-																					fit: BoxFit.fill,
-																					child: _firmaVisual(),
-																				),
+																				child: FittedBox(fit: BoxFit.fill, child: _firmaVisual()),
 																			),
 																		),
 																	),
@@ -662,10 +522,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																		child: SizedBox(
 																			width: _anchoFirma * escala,
 																			height: _altoFirma * escala,
-																			child: FittedBox(
-																				fit: BoxFit.fill,
-																				child: _firmaVisual(),
-																			),
+																			child: FittedBox(fit: BoxFit.fill, child: _firmaVisual()),
 																		),
 																	),
 																),
@@ -674,43 +531,28 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													},
 												),
 											),
-
 										if (_modoManual)
 											Positioned.fill(
 												child: DragTarget<Uint8List>(
 													onAcceptWithDetails: _alSoltar,
 													builder: (context, candidateData, rejectedData) {
-														return IgnorePointer(
-															child: Container(
-																color: candidateData.isNotEmpty
-																		? context.primaryPurple.withValues(alpha: 0.05)
-																		: Colors.transparent,
-															),
-														);
+														return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? context.primaryPurple.withValues(alpha: 0.05) : Colors.transparent));
 													},
 												),
 											),
-
 										Positioned(
 											top: 12,
 											right: 12,
 											child: Column(
 												children: [
-													_botonZoom(Icons.add_rounded, 'Acercar', () {
-														if (_pdfController.isReady) _pdfController.zoomUp();
-													}),
+													_botonZoom(Icons.add_rounded, 'Acercar', () { if (_pdfController.isReady) _pdfController.zoomUp(); }),
 													const SizedBox(height: 8),
-													_botonZoom(Icons.remove_rounded, 'Alejar', () {
-														if (_pdfController.isReady) _pdfController.zoomDown();
-													}),
+													_botonZoom(Icons.remove_rounded, 'Alejar', () { if (_pdfController.isReady) _pdfController.zoomDown(); }),
 													const SizedBox(height: 8),
-													_botonZoom(Icons.fit_screen_rounded, 'Ajustar página', () {
-														_irAPagina(_pdfController.pageNumber ?? 1);
-													}),
+													_botonZoom(Icons.fit_screen_rounded, 'Ajustar página', () { _irAPagina(_pdfController.pageNumber ?? 1); }),
 												],
 											),
 										),
-
 										Positioned(
 											bottom: 24,
 											left: 0,
@@ -733,133 +575,136 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 					Container(
 						width: 300,
 						padding: const EdgeInsets.all(24),
-						decoration: BoxDecoration(
-							color: context.surfaceWhite,
-							border: Border(left: BorderSide(color: context.borderColor)),
-						),
-						child: Column(
-							crossAxisAlignment: CrossAxisAlignment.stretch,
-							children: [
-								Text(
-									'Firma del documento',
-									style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: context.textDark),
-								),
-								const SizedBox(height: 8),
-								Text(
-									'Elige cómo deseas colocar tu firma antes de firmar el documento.',
-									style: TextStyle(fontSize: 14, color: context.textGrey),
-								),
-								const SizedBox(height: 32),
-
-								OutlinedButton.icon(
-									onPressed: _colocarManual,
-									style: OutlinedButton.styleFrom(
-										backgroundColor: _modoManual ? context.primaryPurple.withValues(alpha: 0.1) : Colors.transparent,
-										foregroundColor: _modoManual ? context.primaryPurple : context.textGrey,
-										side: BorderSide(color: _modoManual ? context.primaryPurple : context.borderColor),
-										padding: const EdgeInsets.symmetric(vertical: 16),
-										shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
-									),
-									icon: Icon(_modoManual ? Icons.check_circle_rounded : Icons.touch_app_outlined, size: 20),
-									label: const Text('Firma manual'),
-								),
-
-								if (_modoManual) ...[
+						decoration: BoxDecoration(color: context.surfaceWhite, border: Border(left: BorderSide(color: context.borderColor))),
+						child: SingleChildScrollView(
+							child: Column(
+								crossAxisAlignment: CrossAxisAlignment.stretch,
+								children: [
+									Text('Firma del documento', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: context.textDark)),
+									const SizedBox(height: 8),
+									Text('Elige cómo deseas colocar tu firma antes de firmar el documento.', style: TextStyle(fontSize: 14, color: context.textGrey)),
+									
+									// --- SELECTORES DE CONFIGURACIÓN ---
 									const SizedBox(height: 24),
-									Center(
-										child: Draggable<Uint8List>(
-											data: widget.imagenFirmaBytes,
-											dragAnchorStrategy: (draggable, context, position) => const Offset(_anchoFirma / 2, _altoFirma / 2),
-											feedback: Material(
-												color: Colors.transparent,
-												child: Opacity(opacity: 0.85, child: _firmaVisual()),
+									Text('Motivo de firma', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textDark)),
+									const SizedBox(height: 4),
+									DropdownButtonFormField<String>(
+										value: _motivoSeleccionado,
+										isExpanded: true,
+										decoration: InputDecoration(
+											contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+											border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+										),
+										items: _motivosDisponibles.map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 12)))).toList(),
+										onChanged: (val) { if (val != null) setState(() => _motivoSeleccionado = val); },
+									),
+
+									if (_cargosDisponibles.isNotEmpty) ...[
+										const SizedBox(height: 12),
+										Text('Cargo', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textDark)),
+										const SizedBox(height: 4),
+										DropdownButtonFormField<String>(
+											value: _cargoSeleccionado,
+											isExpanded: true,
+											decoration: InputDecoration(
+												contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+												border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
 											),
-											childWhenDragging: Opacity(opacity: 0.3, child: _imagenFirma(size: 50)),
-											child: Container(
-												padding: const EdgeInsets.all(8),
-												decoration: BoxDecoration(
-													color: context.surfaceGrey,
-													borderRadius: BorderRadius.circular(context.radiusMd),
-													border: Border.all(color: context.borderColor),
-												),
-												child: Column(
-													children: [
-														_imagenFirma(size: 50),
-														const SizedBox(height: 8),
-														Text(
-															'Arrastra la firma hacia\nel documento',
-															textAlign: TextAlign.center,
-															style: TextStyle(fontSize: 12, color: context.textGrey, fontWeight: FontWeight.w500),
-														),
-													],
+											items: _cargosDisponibles.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 12)))).toList(),
+											onChanged: (val) { setState(() => _cargoSeleccionado = val); },
+										),
+									],
+									const Divider(height: 32),
+									// ----------------------------------
+
+									OutlinedButton.icon(
+										onPressed: _colocarManual,
+										style: OutlinedButton.styleFrom(
+											backgroundColor: _modoManual ? context.primaryPurple.withValues(alpha: 0.1) : Colors.transparent,
+											foregroundColor: _modoManual ? context.primaryPurple : context.textGrey,
+											side: BorderSide(color: _modoManual ? context.primaryPurple : context.borderColor),
+											padding: const EdgeInsets.symmetric(vertical: 16),
+											shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
+										),
+										icon: Icon(_modoManual ? Icons.check_circle_rounded : Icons.touch_app_outlined, size: 20),
+										label: const Text('Firma manual'),
+									),
+
+									if (_modoManual) ...[
+										const SizedBox(height: 24),
+										Center(
+											child: Draggable<Uint8List>(
+												data: widget.imagenFirmaBytes,
+												dragAnchorStrategy: (draggable, context, position) => const Offset(_anchoFirma / 2, _altoFirma / 2),
+												feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: _firmaVisual())),
+												childWhenDragging: Opacity(opacity: 0.3, child: _imagenFirma(size: 50)),
+												child: Container(
+													padding: const EdgeInsets.all(8),
+													decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
+													child: Column(
+														children: [
+															_imagenFirma(size: 50),
+															const SizedBox(height: 8),
+															Text('Arrastra la firma hacia\nel documento', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: context.textGrey, fontWeight: FontWeight.w500)),
+														],
+													),
 												),
 											),
 										),
+									],
+
+									const SizedBox(height: 12),
+
+									OutlinedButton.icon(
+										onPressed: _colocarAutomatico,
+										style: OutlinedButton.styleFrom(
+											backgroundColor: !_modoManual ? context.primaryPurple.withValues(alpha: 0.1) : Colors.transparent,
+											foregroundColor: !_modoManual ? context.primaryPurple : context.textGrey,
+											side: BorderSide(color: !_modoManual ? context.primaryPurple : context.borderColor),
+											padding: const EdgeInsets.symmetric(vertical: 16),
+											shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
+										),
+										icon: Icon(!_modoManual ? Icons.check_circle_rounded : Icons.auto_awesome_rounded, size: 20),
+										label: const Text('Firma automática'),
+									),
+
+									if (!_modoManual) _selectorPosicion(),
+
+									if (_modoManual && _posicionPorcentual != null && _totalPaginas > 1) ...[
+										const SizedBox(height: 24),
+										Row(
+											mainAxisAlignment: MainAxisAlignment.center,
+											children: [
+												IconButton(onPressed: _paginaFirma > 1 ? () => _cambiarPagina(-1) : null, icon: const Icon(Icons.chevron_left_rounded)),
+												Text('Página $_paginaFirma de $_totalPaginas', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: context.textDark)),
+												IconButton(onPressed: _paginaFirma < _totalPaginas ? () => _cambiarPagina(1) : null, icon: const Icon(Icons.chevron_right_rounded)),
+											],
+										),
+									],
+
+									const SizedBox(height: 32),
+
+									ElevatedButton(
+										onPressed: _procesando || (_modoManual && _posicionPorcentual == null) || (!_modoManual && _posicionAutoElegida == null) ? null : _confirmar,
+										style: ElevatedButton.styleFrom(
+											backgroundColor: context.primaryPurple,
+											foregroundColor: Colors.white,
+											elevation: 0,
+											padding: const EdgeInsets.symmetric(vertical: 16),
+											shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill)),
+										),
+										child: _procesando
+												? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+												: const Text('Confirmar firma'),
+									),
+									const SizedBox(height: 8),
+									TextButton(
+										onPressed: () => Navigator.of(context).pop(null),
+										style: TextButton.styleFrom(foregroundColor: context.textGrey),
+										child: const Text('Cancelar'),
 									),
 								],
-
-								const SizedBox(height: 12),
-
-								OutlinedButton.icon(
-									onPressed: _colocarAutomatico,
-									style: OutlinedButton.styleFrom(
-										backgroundColor: !_modoManual ? context.primaryPurple.withValues(alpha: 0.1) : Colors.transparent,
-										foregroundColor: !_modoManual ? context.primaryPurple : context.textGrey,
-										side: BorderSide(color: !_modoManual ? context.primaryPurple : context.borderColor),
-										padding: const EdgeInsets.symmetric(vertical: 16),
-										shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
-									),
-									icon: Icon(!_modoManual ? Icons.check_circle_rounded : Icons.auto_awesome_rounded, size: 20),
-									label: const Text('Firma automática'),
-								),
-
-								if (!_modoManual) _selectorPosicion(),
-
-								if (_modoManual && _posicionPorcentual != null && _totalPaginas > 1) ...[
-									const SizedBox(height: 24),
-									Row(
-										mainAxisAlignment: MainAxisAlignment.center,
-										children: [
-											IconButton(
-												onPressed: _paginaFirma > 1 ? () => _cambiarPagina(-1) : null,
-												icon: const Icon(Icons.chevron_left_rounded),
-											),
-											Text(
-												'Página $_paginaFirma de $_totalPaginas',
-												style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: context.textDark),
-											),
-											IconButton(
-												onPressed: _paginaFirma < _totalPaginas ? () => _cambiarPagina(1) : null,
-												icon: const Icon(Icons.chevron_right_rounded),
-											),
-										],
-									),
-								],
-
-								const Spacer(),
-
-								ElevatedButton(
-									onPressed: _procesando || (_modoManual && _posicionPorcentual == null) || (!_modoManual && _posicionAutoElegida == null) 
-										? null 
-										: _confirmar,
-									style: ElevatedButton.styleFrom(
-										backgroundColor: context.primaryPurple,
-										foregroundColor: Colors.white,
-										elevation: 0,
-										padding: const EdgeInsets.symmetric(vertical: 16),
-										shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill)),
-									),
-									child: _procesando
-											? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-											: const Text('Confirmar firma'),
-								),
-								const SizedBox(height: 8),
-								TextButton(
-									onPressed: () => Navigator.of(context).pop(null),
-									style: TextButton.styleFrom(foregroundColor: context.textGrey),
-									child: const Text('Cancelar'),
-								),
-							],
+							),
 						),
 					),
 				],
