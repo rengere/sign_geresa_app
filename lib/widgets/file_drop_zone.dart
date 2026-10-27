@@ -24,11 +24,22 @@ class FileDropZone extends StatefulWidget {
 class _FileDropZoneState extends State<FileDropZone> {
 	bool _isDragging = false;
 
+	// Extensiones aceptadas en esta zona de carga. El .doc se deja pasar
+	// hasta acá a propósito: es sign_screen.dart quien lo rechaza con un
+	// mensaje específico explicando por qué no se puede convertir, en vez
+	// de duplicar esa lógica en dos lugares.
+	static const _extensionesPermitidas = ['.pdf', '.docx', '.doc'];
+
+	bool _extensionPermitida(String path) {
+		final pathMin = path.toLowerCase();
+		return _extensionesPermitidas.any((ext) => pathMin.endsWith(ext));
+	}
+
 	Future<void> _procesarArchivo(String path) async {
-		if (!path.toLowerCase().endsWith('.pdf')) {
+		if (!_extensionPermitida(path)) {
 			if (mounted) {
 				ScaffoldMessenger.of(context).showSnackBar(
-					const SnackBar(content: Text('Solo se permiten archivos PDF.')),
+					const SnackBar(content: Text('Solo se permiten archivos PDF o Word (.docx).')),
 				);
 			}
 			return;
@@ -43,7 +54,7 @@ class _FileDropZoneState extends State<FileDropZone> {
 	Future<void> _elegirArchivo() async {
 		final resultado = await FilePicker.platform.pickFiles(
 			type: FileType.custom,
-			allowedExtensions: ['pdf'],
+			allowedExtensions: ['pdf', 'docx', 'doc'],
 			withData: true,
 		);
 		if (resultado == null || resultado.files.single.path == null) {
@@ -95,7 +106,7 @@ class _FileDropZoneState extends State<FileDropZone> {
 								),
 								const SizedBox(height: AppTheme.spaceLg),
 								Text(
-									'Arrastra tu documento PDF aquí',
+									'Arrastra tu documento (PDF o Word) aquí',
 									style: TextStyle(
 										fontSize: 18,
 										fontWeight: FontWeight.w600,

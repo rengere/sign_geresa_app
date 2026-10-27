@@ -137,3 +137,34 @@ extension ApiServiceTitular on ApiService {
 		return result;
 	}
 }
+
+
+extension ApiServiceDocumentos on ApiService {
+	/// Convierte un documento Word (.docx) a PDF usando el endpoint del
+	/// signer. Devuelve los bytes del PDF resultante.
+	Future<Uint8List> convertirWordAPdf({
+		required Uint8List docxBytes,
+		required String nombreArchivo,
+	}) async {
+		final uri = Uri.parse('${ApiService.baseUrl}/convertir/word-a-pdf');
+		final request = http.MultipartRequest('POST', uri)
+			..files.add(
+				http.MultipartFile.fromBytes('archivo', docxBytes, filename: nombreArchivo),
+			);
+
+		final streamed = await request.send();
+		final res = await http.Response.fromStream(streamed);
+
+		if (res.statusCode != 200) {
+			String detalle;
+			try {
+				final cuerpo = jsonDecode(res.body);
+				detalle = cuerpo['detail']?.toString() ?? 'Error desconocido (${res.statusCode})';
+			} catch (_) {
+				detalle = 'Error desconocido (${res.statusCode})';
+			}
+			throw Exception(detalle);
+		}
+		return res.bodyBytes;
+	}
+}

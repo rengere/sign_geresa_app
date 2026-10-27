@@ -11,38 +11,85 @@ import 'package:firmador_geresa/services/api_service.dart';
 class SignScreen extends StatelessWidget {
 	const SignScreen({super.key});
 
+	// Extensiones de Word que sí podemos convertir (.docx, formato XML
+	// moderno). El formato viejo (.doc, binario) no lo soporta docx4j.
+	bool _esDocx(String nombre) => nombre.toLowerCase().endsWith('.docx');
+	bool _esDocViejo(String nombre) =>
+			nombre.toLowerCase().endsWith('.doc') && !_esDocx(nombre);
+
 	Future<void> _procesarArchivo(BuildContext context, String path, String nombre) async {
 		final archivo = File(path);
-		final bytes = await archivo.readAsBytes();
+		final bytesOriginales = await archivo.readAsBytes();
 
 		if (!context.mounted) return;
 
-		// 1. Mostrar un pequeño modal de carga sutil
-		_mostrarCarga(context);
+		if (_esDocViejo(nombre)) {
+			_mostrarErrorFormatoDoc(context);
+			return;
+		}
+
+		// Mensaje del popup de carga: reactivo, para poder cambiar el texto
+		// (p.ej. "Convirtiendo..." -> "Leyendo DNIe...") sin cerrar y volver
+		// a abrir el diálogo.
+		final mensajeCarga = ValueNotifier<String>('Procesando documento...');
+		_mostrarCarga(context, mensajeCarga);
 
 		try {
+			Uint8List bytesPdf = bytesOriginales;
+			String nombreFinal = nombre;
+
+			// Si es Word (.docx), convertir a PDF antes de seguir. Si ya es
+			// PDF (o cualquier otra cosa), no se toca.
+			//
+			// Este paso va en su propio try/catch: si falla, hay que
+			// mostrar el error REAL de conversión, no el mensaje genérico
+			// de "no se pudo leer el DNIe" (que es para el paso de más
+			// abajo y no tiene nada que ver con esto).
+			if (_esDocx(nombre)) {
+				mensajeCarga.value = 'Convirtiendo documento a PDF...';
+
+				try {
+					bytesPdf = await ApiService().convertirWordAPdf(
+						docxBytes: bytesOriginales,
+						nombreArchivo: nombre,
+					);
+				} catch (e) {
+					if (!context.mounted) return;
+					Navigator.of(context, rootNavigator: true).pop();
+					_mostrarErrorConversion(context, '$e');
+					return;
+				}
+
+				// A partir de acá el documento ya es un PDF: el nombre debe
+				// reflejarlo, para que el popup de firma (que arma el nombre
+				// final del archivo) no arrastre el ".docx" original.
+				nombreFinal = '${nombre.substring(0, nombre.length - 5)}.pdf';
+			}
+
+			mensajeCarga.value = 'Leyendo DNIe...';
+
 			final api = ApiService();
 			TitularCertificado? titular;
-			
+
 			// --- LÓGICA DE REINTENTO ASÍNCRONO REACTIVO ---
 			int intentos = 0;
 			const maxIntentos = 5;
-			
+
 			while (intentos < maxIntentos) {
 				try {
 					titular = await api.obtenerTitular();
-					break; 
+					break;
 				} catch (e) {
 					intentos++;
 					if (intentos >= maxIntentos) {
-						rethrow; 
+						rethrow;
 					}
 					await Future.delayed(const Duration(milliseconds: 200));
 				}
 			}
 
 			if (!context.mounted) return;
-			// 2. Cerrar el modal de carga usando el rootNavigator
+			// Cerrar el modal de carga usando el rootNavigator
 			Navigator.of(context, rootNavigator: true).pop();
 
 			final imagenFirmaBytes = await _obtenerImagenFirma(context);
@@ -51,8 +98,8 @@ class SignScreen extends StatelessWidget {
 			final pdfConImagen = await Navigator.of(context).push<Uint8List>(
 				MaterialPageRoute(
 					builder: (_) => EditorFirmaModal(
-						pdfBytes: bytes,
-						nombreArchivo: nombre,
+						pdfBytes: bytesPdf,
+						nombreArchivo: nombreFinal,
 						imagenFirmaBytes: imagenFirmaBytes,
 						nombreFirmante: titular!.nombre,
 						dniFirmante: titular.dni,
@@ -67,7 +114,7 @@ class SignScreen extends StatelessWidget {
 				barrierDismissible: false,
 				builder: (_) => PopupFirma(
 					pdfBytes: pdfConImagen,
-					nombreArchivo: nombre,
+					nombreArchivo: nombreFinal,
 					rutaBackup: obtenerRutaNextcloud(), // <-- Función llamada al momento
 				),
 			);
@@ -75,11 +122,15 @@ class SignScreen extends StatelessWidget {
 			if (!context.mounted) return;
 			Navigator.of(context, rootNavigator: true).pop(); // Cerrar carga en caso de error
 			_mostrarErrorLectura(context);
+		} finally {
+			mensajeCarga.dispose();
 		}
 	}
 
-	// Modal de carga flotante, centrado, sin fondo oscuro
-	void _mostrarCarga(BuildContext context) {
+	// Modal de carga flotante, centrado, sin fondo oscuro. El texto es
+	// reactivo: cambia según el ValueNotifier que se le pase, sin cerrar
+	// ni volver a abrir el diálogo.
+	void _mostrarCarga(BuildContext context, ValueNotifier<String> mensaje) {
 		showDialog(
 			context: context,
 			barrierDismissible: false,
@@ -112,12 +163,15 @@ class SignScreen extends StatelessWidget {
 									),
 								),
 								const SizedBox(width: 16),
-								Text(
-									'Leyendo DNIe...',
-									style: TextStyle(
-										fontSize: 14,
-										fontWeight: FontWeight.w500,
-										color: ctx.textDark,
+								ValueListenableBuilder<String>(
+									valueListenable: mensaje,
+									builder: (_, texto, __) => Text(
+										texto,
+										style: TextStyle(
+											fontSize: 14,
+											fontWeight: FontWeight.w500,
+											color: ctx.textDark,
+										),
 									),
 								),
 							],
@@ -143,6 +197,57 @@ class SignScreen extends StatelessWidget {
 				content: const Text(
 					'No se pudo leer el certificado del DNIe.\n\n'
 					'Asegúrate de que el DNIe esté insertado correctamente y vuelve a intentarlo.',
+				),
+				actions: [
+					TextButton(
+						onPressed: () => Navigator.of(ctx).pop(),
+						child: const Text('Entendido'),
+					),
+				],
+			),
+		);
+	}
+
+	void _mostrarErrorConversion(BuildContext context, String detalle) {
+		showDialog(
+			context: context,
+			builder: (ctx) => AlertDialog(
+				shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ctx.radiusLg)),
+				title: Row(
+					children: [
+						Icon(Icons.error_outline_rounded, color: ctx.errorRed),
+						const SizedBox(width: 8),
+						const Text('No se pudo convertir el documento'),
+					],
+				),
+				content: Text(
+					'Ocurrió un problema al convertir el documento Word a PDF.\n\n$detalle',
+				),
+				actions: [
+					TextButton(
+						onPressed: () => Navigator.of(ctx).pop(),
+						child: const Text('Entendido'),
+					),
+				],
+			),
+		);
+	}
+
+	void _mostrarErrorFormatoDoc(BuildContext context) {
+		showDialog(
+			context: context,
+			builder: (ctx) => AlertDialog(
+				shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ctx.radiusLg)),
+				title: Row(
+					children: [
+						Icon(Icons.error_outline_rounded, color: ctx.errorRed),
+						const SizedBox(width: 8),
+						const Text('Formato no compatible'),
+					],
+				),
+				content: const Text(
+					'Los archivos .doc (el formato antiguo de Word) no se pueden convertir.\n\n'
+					'Abre el documento en Word, guárdalo como .docx (o como PDF), y vuelve a intentarlo.',
 				),
 				actions: [
 					TextButton(
