@@ -56,7 +56,6 @@ class _FirmadorAppState extends State<FirmadorApp> with WidgetsBindingObserver, 
 	}
 
 	// Este es el que de verdad mata la API cuando se cierra la ventana
-	// con el botón "X".
 	@override
 	void onWindowClose() async {
 		SignerService.stop();
