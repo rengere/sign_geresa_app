@@ -5,6 +5,6 @@ class FirmaGeresa extends StatelessWidget {
 
 	@override
 	Widget build(BuildContext context) {
-		return const Text("asdfasdfasdf");
+		return const Text("configuracion aqui");
 	}
 }

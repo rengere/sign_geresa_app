@@ -24,8 +24,8 @@ class Settings extends StatelessWidget {
 				),
 
 				SettingsTabItem(
-					title: 'Nextcloud',
-					icon: Icons.cloud_download,
+					title: 'Firma Geresa',
+					icon: Icons.verified_user_rounded,
 					screen: FirmaGeresa(),
 				),
 				// SettingsTabItem(
