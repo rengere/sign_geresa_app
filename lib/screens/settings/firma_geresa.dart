@@ -1,7 +1,9 @@
+import 'package:firmador_geresa/assets/tools/fns/uppercase_text.dart';
 import 'package:flutter/material.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart';
-import 'package:firmador_geresa/widgets/forms/input_editable.dart'; // Ajusta tu ruta
+import 'package:firmador_geresa/widgets/forms/input_editable.dart';
+import 'package:flutter/services.dart'; // Ajusta tu ruta
 
 class FirmaGeresa extends StatefulWidget {
 	const FirmaGeresa({super.key});
@@ -222,6 +224,11 @@ class _FirmaGeresaState extends State<FirmaGeresa> {
 							initialValue: JsonStorage.getString('firma_sufijo') ?? 'FG',
 							hintText: 'Máximo 3 letras (Ej. FG)',
 							isFolderPath: false,
+							maxLength: 3,
+							inputFormatters: [
+								FilteringTextInputFormatter.allow(RegExp('[a-zA-Z]')),
+								UpperCaseTextFormatter(),
+							],
 							onSave: (val) async {
 								final finalVal = val.trim().isEmpty ? 'FG' : val.trim().toUpperCase();
 								await JsonStorage.setString('firma_sufijo', finalVal);
@@ -233,3 +240,4 @@ class _FirmaGeresaState extends State<FirmaGeresa> {
 		);
 	}
 }
+

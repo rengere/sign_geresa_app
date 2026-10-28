@@ -293,7 +293,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				startY += 7.5;
 
 				// 5. Fecha y Folios juntos
-				g.drawString('F: $fechaStr - $horaStr | Nf: $_totalPaginas', fuente, brush: negro, bounds: Rect.fromLTWH(tx, startY, 0, 0));
+				g.drawString('F: $fechaStr - $horaStr | Folios: $_totalPaginas', fuente, brush: negro, bounds: Rect.fromLTWH(tx, startY, 0, 0));
 				startY += 7.5;
 
 				// 6. Motivo de firma (Al final)
@@ -340,7 +340,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 								if (_cargoSeleccionado != null && _cargoSeleccionado!.isNotEmpty)
 									Text(_cargoSeleccionado!, style: estilo),
 								Text('FIR (DNI ${widget.dniFirmante}) hard', style: estilo),
-								Text('F: $fechaStr - $horaStr | Nf: $_totalPaginas', style: estilo),
+								Text('F: $fechaStr - $horaStr | Folios: $_totalPaginas', style: estilo),
 								Text('Motivo: $_motivoSeleccionado', style: estilo),
 							],
 						),

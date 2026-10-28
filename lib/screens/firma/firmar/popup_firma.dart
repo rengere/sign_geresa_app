@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
+import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart'; // IMPORTANTE AÑADIDO
 import '../../../services/api_service.dart';
 
 enum _EstadoDialogoFirma { pin, cargando, exito, error }
@@ -56,20 +57,26 @@ class _PopupFirmaState extends State<PopupFirma> {
 				: nombre;
 	}
 
-	// Fuerza el formato "nombre [FG].pdf" sin importar cómo lo escriba el usuario
+	// Lee el sufijo desde JsonStorage (Ej: "FG") o usa "FG" por defecto
+	String _getSufijoConfigurado() {
+		final guardado = JsonStorage.getString('firma_sufijo');
+		if (guardado == null || guardado.trim().isEmpty) return 'FG';
+		return guardado.trim().toUpperCase();
+	}
+
+	// Fuerza el formato "nombre [SUFIJO].pdf" sin importar cómo lo escriba el usuario
 	String _forzarNombreCorrecto(String rutaIngresada, {required String nombreFallback}) {
-		// Obtener solo el nombre del archivo (por si el FilePicker devuelve la ruta completa)
 		String nombre = rutaIngresada.split(Platform.pathSeparator).last;
 		
-		// 1. Quitar extensión .pdf (en caso de que la tenga)
+		// 1. Quitar extensión .pdf
 		if (nombre.toLowerCase().endsWith('.pdf')) {
 			nombre = nombre.substring(0, nombre.length - 4);
 		}
 
-		// 2. Quitar el [FG] (en caso de que el usuario o el sistema lo hayan puesto)
-		nombre = nombre.replaceAll(RegExp(r'\s*\[FG\]', caseSensitive: false), '');
-
-		// 3. Limpiar espacios sobrantes al inicio y final
+		// 2. Quitar corchetes que el usuario haya puesto por error o que el sistema haya inyectado
+		nombre = nombre.replaceAll(RegExp(r'\[.*?\]'), '');
+		
+		// 3. Limpiar espacios sobrantes
 		nombre = nombre.trim();
 
 		// 4. Si el usuario borró todo, usar el nombre de respaldo
@@ -77,8 +84,10 @@ class _PopupFirmaState extends State<PopupFirma> {
 			nombre = nombreFallback;
 		}
 
-		// 5. Devolver con [FG] y .pdf forzados
-		return '$nombre [FG].pdf';
+		// 5. Obtener el sufijo configurado y armar el nombre final
+		final sufijo = _getSufijoConfigurado();
+		
+		return '$nombre [$sufijo].pdf';
 	}
 
 	Future<void> _firmar() async {
@@ -130,9 +139,10 @@ class _PopupFirmaState extends State<PopupFirma> {
 	Future<void> _guardarComo() async {
 		if (_pdfFirmado == null) return;
 
-		// 1. Sugerir nombre inicial con [FG]
+		// 1. Sugerir nombre inicial con el sufijo dinámico
 		final nombreBase = _limpiarNombre(widget.nombreArchivo);
-		final nombreSugerido = '${nombreBase} [FG].pdf';
+		final sufijo = _getSufijoConfigurado();
+		final nombreSugerido = '${nombreBase} [$sufijo].pdf';
 
 		final rutaDestino = await FilePicker.platform.saveFile(
 			dialogTitle: 'Guardar documento firmado',
@@ -145,16 +155,13 @@ class _PopupFirmaState extends State<PopupFirma> {
 
 		try {
 			// 2. Forzar el nombre y la extensión correcta
-			// Obtenemos la carpeta donde el usuario eligió guardar
 			final directorio = rutaDestino.substring(0, rutaDestino.lastIndexOf(Platform.pathSeparator));
 			
-			// Forzamos el nombre con la lógica del helper
 			final nombreFinal = _forzarNombreCorrecto(
 				rutaDestino, 
-				nombreFallback: '${nombreBase}' // Nombre por si borra todo
+				nombreFallback: '${nombreBase}'
 			);
 			
-			// Armamos la ruta final
 			final rutaFinal = '$directorio${Platform.pathSeparator}$nombreFinal';
 
 			await File(rutaFinal).writeAsBytes(_pdfFirmado!);

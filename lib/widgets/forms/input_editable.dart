@@ -1,6 +1,7 @@
 import 'package:file_selector/file_selector.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // <-- NUEVO IMPORT
 
 class InputEditable extends StatefulWidget {
 	final String label;
@@ -8,8 +9,11 @@ class InputEditable extends StatefulWidget {
 	final String? hintText;
 	final ValueChanged<String> onSave;
 	
-	// NUEVO PARÁMETRO: Si es true, muestra el botón para elegir carpeta
 	final bool isFolderPath;
+	
+	// NUEVOS PARÁMETROS PARA VALIDACIÓN
+	final int? maxLength;
+	final List<TextInputFormatter>? inputFormatters;
 
 	const InputEditable({
 		super.key, 
@@ -17,7 +21,9 @@ class InputEditable extends StatefulWidget {
 		required this.initialValue,
 		required this.onSave,
 		this.hintText,
-		this.isFolderPath = false, // Por defecto es falso (texto normal)
+		this.isFolderPath = false,
+		this.maxLength,
+		this.inputFormatters,
 	});
 
 	@override
@@ -68,7 +74,6 @@ class _InputEditableState extends State<InputEditable> {
 		widget.onSave(_controller.text);
 	}
 
-	// NUEVA FUNCIÓN: Abre el explorador de carpetas
 	Future<void> _seleccionarCarpeta() async {
 		final ruta = await getDirectoryPath();
 		if (ruta != null) {
@@ -103,6 +108,8 @@ class _InputEditableState extends State<InputEditable> {
 									readOnly: !_isEditing,
 									canRequestFocus: _isEditing,
 									showCursor: _isEditing,
+									maxLength: widget.maxLength, // <-- AÑADIDO AQUÍ
+									inputFormatters: widget.inputFormatters, // <-- AÑADIDO AQUÍ
 									decoration: InputDecoration(
 										hintText: widget.hintText,
 										filled: true,
@@ -120,6 +127,8 @@ class _InputEditableState extends State<InputEditable> {
 											borderRadius: BorderRadius.circular(8),
 											borderSide: BorderSide(color: context.borderColor),
 										),
+										// Opcional: Ocultar el contador de maxLength si molesta visualmente
+										counterText: '', 
 									),
 									style: TextStyle(
 										color: context.textDark,
@@ -130,7 +139,6 @@ class _InputEditableState extends State<InputEditable> {
 						),
 						const SizedBox(width: 12),
 
-						// BOTÓN DE EDITAR (Solo cuando NO se está editando)
 						if (!_isEditing)
 							IconButton(
 								onPressed: _startEditing,
@@ -143,9 +151,7 @@ class _InputEditableState extends State<InputEditable> {
 								),
 							),
 
-						// BOTONES CUANDO SE ESTÁ EDITANDO
 						if (_isEditing) ...[
-							// NUEVO BOTÓN: Solo aparece si es una ruta de carpeta
 							if (widget.isFolderPath) ...[
 								IconButton(
 									onPressed: _seleccionarCarpeta,
