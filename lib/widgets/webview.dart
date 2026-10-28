@@ -34,16 +34,16 @@ class WebView extends StatefulWidget {
 class _Descarga {
 	final String url;
 	String ruta;
-	int recibidos;
-	int total;
-	bool completada;
+	int recibidos = 0;
+	int total = 0;
+	bool completada = false;
 
 	_Descarga({
 		required this.url,
 		required this.ruta,
-		this.recibidos = 0,
-		this.total = 0,
-		this.completada = false,
+		// this.recibidos = 0,
+		// this.total = 0,
+		// this.completada = false,
 	});
 
 	String get nombre {
