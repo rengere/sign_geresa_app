@@ -34,11 +34,14 @@ class _NaviBarState extends State<NaviBar> {
 			label: 'Inicio',
 			screen: const HomeScreen(),
 		),
-		_TabData(
-			icon: Icons.bar_chart_rounded,
-			label: 'Stats',
-			screen: const Center(child: Text("screen 2", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
-		),
+		// _TabData(
+		// 	icon: Icons.bar_chart_rounded,
+		// 	label: 'Stats',
+		// 	screen: const Center(child: Text("screen 2", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
+		// ),
+
+
+
 		// _TabData(
 		// 	icon: Icons.chat_bubble_outline_rounded,
 		// 	label: 'Chat',
@@ -54,6 +57,8 @@ class _NaviBarState extends State<NaviBar> {
 		// 	label: 'Filesss',
 		// 	screen: const Center(child: Text("screen 5", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
 		// ),
+
+
 		_TabData(
 			icon: Icons.settings_outlined,
 			label: 'Config.',
