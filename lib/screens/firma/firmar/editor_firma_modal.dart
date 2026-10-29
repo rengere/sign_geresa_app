@@ -77,7 +77,19 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		_motivosDisponibles = ['Soy el autor del documento', 'Señal de conformidad', 'Por encargo', ...motivosExtra];
 		_cargosDisponibles = (JsonStorage.getJson('firma_cargos') as List?)?.cast<String>() ?? [];
 		
-		if (_cargosDisponibles.isNotEmpty) {
+		// 1. Cargar Motivo seleccionado en config
+		final motivoActivo = JsonStorage.getString('firma_motivo_activo');
+		if (motivoActivo != null && _motivosDisponibles.contains(motivoActivo)) {
+			_motivoSeleccionado = motivoActivo;
+		} else if (_motivosDisponibles.isNotEmpty) {
+			_motivoSeleccionado = _motivosDisponibles.first;
+		}
+
+		// 2. Cargar Cargo seleccionado en config
+		final cargoActivo = JsonStorage.getString('firma_cargo_activo');
+		if (cargoActivo != null && _cargosDisponibles.contains(cargoActivo)) {
+			_cargoSeleccionado = cargoActivo;
+		} else if (_cargosDisponibles.isNotEmpty) {
 			_cargoSeleccionado = _cargosDisponibles.first;
 		}
 	}
