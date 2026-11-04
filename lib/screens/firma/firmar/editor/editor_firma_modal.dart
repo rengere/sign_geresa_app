@@ -170,15 +170,15 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		_pdfController.goToPage(pageNumber: pagina, anchor: PdfPageAnchor.all);
 	}
 
-	void _cambiarPagina(int delta) {
-		final nueva = (_paginaFirma + delta).clamp(1, _totalPaginas);
-		if (nueva == _paginaFirma || _posicionPorcentual == null) return;
-		setState(() {
-			_paginaFirma = nueva;
-			_posicionPorcentual = _limitar(_posicionPorcentual!, nueva);
-		});
-		_irAPagina(nueva);
-	}
+	// void _cambiarPagina(int delta) {
+	// 	final nueva = (_paginaFirma + delta).clamp(1, _totalPaginas);
+	// 	if (nueva == _paginaFirma || _posicionPorcentual == null) return;
+	// 	setState(() {
+	// 		_paginaFirma = nueva;
+	// 		_posicionPorcentual = _limitar(_posicionPorcentual!, nueva);
+	// 	});
+	// 	_irAPagina(nueva);
+	// }
 
 	void _colocarAutomatico() {
 		if (_tamanos.isEmpty) return;
