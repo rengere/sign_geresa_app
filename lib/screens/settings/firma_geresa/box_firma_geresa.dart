@@ -14,8 +14,6 @@ class BoxFirmaGeresa extends StatefulWidget {
 }
 
 class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
-
-
 	List<String> _motivosExtra = [];
 	List<String> _cargos = [];
 	
@@ -182,7 +180,6 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 	Widget build(BuildContext context) {
 		final todosLosMotivos = [...motivosPredeterminados, ..._motivosExtra];
 
-		// Forzamos el fondo blanco con Container y mantenemos tu padding original
 		return Container(
 			color: context.surfaceWhite,
 			child: Column(
@@ -190,7 +187,6 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 				children: [
 					Expanded(
 						child: SingleChildScrollView(
-							// Tu padding original (el único)
 							padding: const EdgeInsets.only(left: 32, top: 0, right: 32, bottom: 32),
 							child: Column(
 								crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,7 +249,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 									InputEditable(
 										label: 'Sufijo de la firma',
 										initialValue: JsonStorage.getString('firma_sufijo') ?? 'FG',
-										hintText: 'Máximo 3 letras (Ej. FG)',
+										hintText: 'Máximo 3 letras',
 										isFolderPath: false,
 										maxLength: 3,
 										inputFormatters: [
@@ -263,6 +259,24 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 										onSave: (val) async {
 											final finalVal = val.trim().isEmpty ? 'FG' : val.trim().toUpperCase();
 											await JsonStorage.setString('firma_sufijo', finalVal);
+										},
+									),
+
+									const SizedBox(height: 32),
+
+									// 4. DIRECCIÓN / OFICINA
+									InputEditable(
+										label: 'Siglas de Dirección / Oficina',
+										initialValue: JsonStorage.getString('firma_direccion_oficina') ?? '',
+										hintText: 'Máximo 7 letras',
+										isFolderPath: false,
+										maxLength: 7,
+										inputFormatters: [
+											FilteringTextInputFormatter.allow(RegExp('[a-zA-Z]')),
+											UpperCaseTextFormatter(),
+										],
+										onSave: (val) async {
+											await JsonStorage.setString('firma_direccion_oficina', val.trim().toUpperCase());
 										},
 									),
 								],
