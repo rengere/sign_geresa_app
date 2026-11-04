@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:firmador_geresa/assets/tools/files_manag/folder_path_nxc.dart';
+import 'package:firmador_geresa/data/rutas_carpetas_docs.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor_firma_modal.dart';
 import 'package:firmador_geresa/screens/firma/firmar/popup_firma.dart';
 import 'package:firmador_geresa/widgets/file_drop_zone.dart';
@@ -109,13 +110,15 @@ class SignScreen extends StatelessWidget {
 
 			if (pdfConImagen == null || !context.mounted) return;
 
+			final obtrutaNxc = obtenerRutaNextcloud();
+
 			await showDialog(
 				context: context,
 				barrierDismissible: false,
 				builder: (_) => PopupFirma(
 					pdfBytes: pdfConImagen,
 					nombreArchivo: nombreFinal,
-					rutaBackup: obtenerRutaNextcloud(), // <-- Función llamada al momento
+					rutaBackup: "$obtrutaNxc$firmados", 
 				),
 			);
 		} catch (e) {

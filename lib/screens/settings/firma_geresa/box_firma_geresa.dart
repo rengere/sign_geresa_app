@@ -1,4 +1,5 @@
 import 'package:firmador_geresa/assets/tools/fns/uppercase_text.dart';
+import 'package:firmador_geresa/data/motivo_firma.dart';
 import 'package:flutter/material.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart';
@@ -13,16 +14,12 @@ class BoxFirmaGeresa extends StatefulWidget {
 }
 
 class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
-	static const List<String> _motivosPredeterminados = [
-		'Soy el autor del documento',
-		'Señal de conformidad',
-		'Por encargo',
-	];
+
 
 	List<String> _motivosExtra = [];
 	List<String> _cargos = [];
 	
-	String _motivoSeleccionado = _motivosPredeterminados.first;
+	String _motivoSeleccionado = motivosPredeterminados.first;
 	String? _cargoSeleccionado;
 
 	@override
@@ -36,10 +33,10 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 		_cargos = (JsonStorage.getJson('firma_cargos') as List?)?.cast<String>() ?? [];
 		
 		final motivoGuardado = JsonStorage.getString('firma_motivo_activo');
-		if (motivoGuardado != null && (_motivosPredeterminados.contains(motivoGuardado) || _motivosExtra.contains(motivoGuardado))) {
+		if (motivoGuardado != null && (motivosPredeterminados.contains(motivoGuardado) || _motivosExtra.contains(motivoGuardado))) {
 			_motivoSeleccionado = motivoGuardado;
 		} else {
-			_motivoSeleccionado = _motivosPredeterminados.first;
+			_motivoSeleccionado = motivosPredeterminados.first;
 		}
 
 		final cargoGuardado = JsonStorage.getString('firma_cargo_activo');
@@ -144,7 +141,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 									),
 								),
 								items: items.map((m) {
-									final isPredeterminado = isMotivo && _motivosPredeterminados.contains(m);
+									final isPredeterminado = isMotivo && motivosPredeterminados.contains(m);
 									return DropdownMenuItem(
 										value: m,
 										child: Row(
@@ -183,7 +180,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 
 	@override
 	Widget build(BuildContext context) {
-		final todosLosMotivos = [..._motivosPredeterminados, ..._motivosExtra];
+		final todosLosMotivos = [...motivosPredeterminados, ..._motivosExtra];
 
 		// Forzamos el fondo blanco con Container y mantenemos tu padding original
 		return Container(
@@ -208,7 +205,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 											setState(() {
 												_motivosExtra.remove(m);
 												if (_motivoSeleccionado == m) {
-													_motivoSeleccionado = _motivosPredeterminados.first;
+													_motivoSeleccionado = motivosPredeterminados.first;
 													JsonStorage.setString('firma_motivo_activo', _motivoSeleccionado);
 												}
 											});

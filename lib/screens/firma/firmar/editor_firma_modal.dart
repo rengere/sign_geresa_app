@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:firmador_geresa/data/motivo_firma.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
@@ -74,7 +75,10 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 	void _cargarConfiguracionFirma() {
 		final motivosExtra = (JsonStorage.getJson('firma_motivos_extra') as List?)?.cast<String>() ?? [];
-		_motivosDisponibles = ['Soy el autor del documento', 'Señal de conformidad', 'Por encargo', ...motivosExtra];
+		_motivosDisponibles = [
+			...motivosPredeterminados,
+			...motivosExtra
+		];
 		_cargosDisponibles = (JsonStorage.getJson('firma_cargos') as List?)?.cast<String>() ?? [];
 		
 		// 1. Cargar Motivo seleccionado en config
