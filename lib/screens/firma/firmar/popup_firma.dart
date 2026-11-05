@@ -14,12 +14,26 @@ class PopupFirma extends StatefulWidget {
 	final String? rutaBackup;
 	final bool esVistoBueno;
 
+	// NUEVOS PARÁMETROS PARA EL SELLO
+	final Uint8List? imagenSello;
+	final int? pagina;
+	final double? x;
+	final double? y;
+	final double? ancho;
+	final double? alto;
+
 	const PopupFirma({
 		super.key,
 		required this.pdfBytes,
 		required this.nombreArchivo,
 		required this.rutaBackup,
 		this.esVistoBueno = false,
+		this.imagenSello,
+		this.pagina,
+		this.x,
+		this.y,
+		this.ancho,
+		this.alto,
 	});
 
 	@override
@@ -41,9 +55,10 @@ class _PopupFirmaState extends State<PopupFirma> {
 		super.initState();
 		if (widget.esVistoBueno) {
 			_estado = _EstadoDialogoFirma.exito;
-			_pdfFirmado = widget.pdfBytes;
+			_pdfFirmado = widget.pdfBytes; // El PDF que ya viene con el sello pegado por Java o Flutter
 			_guardarBackupSilencioso(widget.pdfBytes); 
 		} else {
+			// Flujo normal con PIN
 			_estado = _EstadoDialogoFirma.pin;
 			WidgetsBinding.instance.addPostFrameCallback((_) {
 				if (mounted) _pinFocusNode.requestFocus();
@@ -90,7 +105,13 @@ class _PopupFirmaState extends State<PopupFirma> {
 			final pdfFirmado = await _api.firmar(
 				pdfBytes: widget.pdfBytes, 
 				nombreArchivo: widget.nombreArchivo, 
-				pin: _pinCtrl.text
+				pin: _pinCtrl.text,
+				imagenSello: widget.imagenSello,
+				pagina: widget.pagina,
+				x: widget.x,
+				y: widget.y,
+				ancho: widget.ancho,
+				alto: widget.alto,
 			);
 			_guardarBackupSilencioso(pdfFirmado);
 			setState(() {

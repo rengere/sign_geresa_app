@@ -11,6 +11,12 @@ class ApiService {
 		required Uint8List pdfBytes,
 		required String nombreArchivo,
 		required String pin,
+		Uint8List? imagenSello,
+		int? pagina,
+		double? x,
+		double? y,
+		double? ancho,
+		double? alto,
 	}) async {
 		final uri = Uri.parse('$baseUrl/firmar');
 		final request = http.MultipartRequest('POST', uri)
@@ -18,6 +24,17 @@ class ApiService {
 			..files.add(
 				http.MultipartFile.fromBytes('pdf', pdfBytes, filename: nombreArchivo),
 			);
+
+		if (imagenSello != null) {
+			request.files.add(
+				http.MultipartFile.fromBytes('imagen', imagenSello, filename: 'sello.png'),
+			);
+			if (pagina != null) request.fields['pagina'] = pagina.toString();
+			if (x != null) request.fields['x'] = x.toString();
+			if (y != null) request.fields['y'] = y.toString();
+			if (ancho != null) request.fields['ancho'] = ancho.toString();
+			if (alto != null) request.fields['alto'] = alto.toString();
+		}
 
 		final streamed = await request.send();
 		final res = await http.Response.fromStream(streamed);
@@ -28,8 +45,6 @@ class ApiService {
 		return res.bodyBytes;
 	}
 
-	/// Verifica las firmas de un PDF. Devuelve la respuesta JSON cruda tal
-	/// como la entrega el backend (la misma que se ve al probar con curl).
 	Future<Map<String, dynamic>> verificar({
 		required Uint8List pdfBytes,
 		required String nombreArchivo,
@@ -59,7 +74,6 @@ class ApiService {
 	}
 }
 
-
 class TitularCertificado {
 	final String nombre;
 	final String dni;
@@ -71,7 +85,6 @@ class TitularCertificado {
 }
 
 extension ApiServiceTitular on ApiService {
-	/// Obtiene los datos del titular del certificado desde el lector del DNIe.
 	Future<TitularCertificado> obtenerTitular() async {
 		final uri = Uri.parse('${ApiService.baseUrl}/lector/titular');
 		final res = await http.get(uri);
@@ -83,7 +96,6 @@ extension ApiServiceTitular on ApiService {
 		final json = jsonDecode(res.body) as Map<String, dynamic>;
 		final sujeto = json['sujeto']?.toString() ?? '';
 
-		// Parseo básico del DN X.509
 		String nombreCompleto = 'Desconocido';
 		String dni = '00000000';
 
@@ -119,7 +131,6 @@ extension ApiServiceTitular on ApiService {
 		if (apellidos.isNotEmpty && nombres.isNotEmpty) {
 			nombreCompleto = '$apellidos $nombres';
 		} else if (matchCN != null) {
-			// Fallback: limpiar el CN si no se pudo parsear el hex
 			nombreCompleto = matchCN.group(1)!.replaceAll(RegExp(r'\s+FIR.*$'), '').trim();
 		}
 
@@ -138,10 +149,7 @@ extension ApiServiceTitular on ApiService {
 	}
 }
 
-
 extension ApiServiceDocumentos on ApiService {
-	/// Convierte un documento Word (.docx) a PDF usando el endpoint del
-	/// signer. Devuelve los bytes del PDF resultante.
 	Future<Uint8List> convertirWordAPdf({
 		required Uint8List docxBytes,
 		required String nombreArchivo,
