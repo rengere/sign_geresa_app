@@ -5,9 +5,12 @@ import 'package:firmador_geresa/data/motivo_firma.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:pdfrx/pdfrx.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
+import 'package:image/image.dart' as img;
 import 'package:file_picker/file_picker.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart';
+import 'package:firmador_geresa/services/api_service.dart';
 
 enum PosicionFirma { arribaIzquierda, arribaCentro, arribaDerecha, abajoIzquierda, abajoCentro, abajoDerecha }
 
@@ -49,6 +52,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 	bool _modoManual = true;
 	bool _procesando = false;
+	bool _foliarDocumento = false; // Variable para el switch
 
 	static const double _anchoFirma = 240;
 	static const double _altoFirma = 100; 
@@ -78,12 +82,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		
 		_documentoUnido = widget.pdfBytes;
 		
-		// Si es Visto Bueno, forzamos automático. Si no, forzamos manual.
+		// Configuración inicial del switch y modo
 		if (_motivoSeleccionado == 'Visto bueno') {
 			_modoManual = false;
 			_posicionAuto = PosicionFirma.abajoIzquierda;
+			_foliarDocumento = false;
 		} else {
 			_modoManual = true;
+			_foliarDocumento = true;
 		}
 	}
 
@@ -115,13 +121,121 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		_direccionOficina = JsonStorage.getString('firma_direccion_oficina') ?? '';
 	}
 
-	void _actualizarDocumentoUnido() async {
-		setState(() {
-			_documentoUnido = widget.pdfBytes;
-		});
+	Future<void> _actualizarDocumentoUnido() async {
+		if (_referenciales.isEmpty) {
+			setState(() => _documentoUnido = widget.pdfBytes);
+			return;
+		}
+		
+		setState(() => _procesando = true);
+		try {
+			final documentoFinal = sf.PdfDocument();
+			final List<Uint8List> todosLosPdfs = [widget.pdfBytes, ..._referenciales.map((r) => r.bytes)];
+			sf.PdfSection? seccion;
+
+			for (final bytesPdf in todosLosPdfs) {
+				final documentoFuente = sf.PdfDocument(inputBytes: bytesPdf);
+				for (int i = 0; i < documentoFuente.pages.count; i++) {
+					final paginaFuente = documentoFuente.pages[i];
+					final template = paginaFuente.createTemplate();
+					if (seccion == null || seccion.pageSettings.size != template.size) {
+						seccion = documentoFinal.sections!.add();
+						seccion.pageSettings.size = template.size;
+						seccion.pageSettings.margins.all = 0;
+					}
+					seccion.pages.add().graphics.drawPdfTemplate(template, const Offset(0, 0));
+				}
+				documentoFuente.dispose();
+			}
+
+			final List<int> resultado = await documentoFinal.save();
+			documentoFinal.dispose();
+			
+			setState(() {
+				_documentoUnido = Uint8List.fromList(resultado);
+				_procesando = false;
+			});
+		} catch (e) {
+			debugPrint('Error al unir: $e');
+			setState(() => _procesando = false);
+		}
 	}
 
 	Future<void> _agregarReferencial() async {
+		setState(() => _procesando = true);
+		bool yaFirmado = false;
+		try {
+			yaFirmado = await ApiService().estaFirmado(
+				pdfBytes: widget.pdfBytes,
+				nombreArchivo: widget.nombreArchivo,
+			);
+		} catch (e) {
+			debugPrint('Error verificando firma: $e');
+		} finally {
+			setState(() => _procesando = false);
+		}
+
+		if (yaFirmado && mounted) {
+			final anchoModal = MediaQuery.of(context).size.width * 0.6;
+
+			final confirmar = await showDialog<bool>(
+				context: context,
+				barrierDismissible: false,
+				builder: (ctx) => AlertDialog(
+					shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ctx.radiusLg)),
+					insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+					content: SizedBox(
+						width: anchoModal,
+						child: Column(
+							mainAxisSize: MainAxisSize.min,
+							children: [
+								Icon(Icons.warning_amber_rounded, color: ctx.errorRed, size: 48),
+								const SizedBox(height: 16),
+								Text(
+									'Documento ya firmado',
+									style: TextStyle(fontWeight: FontWeight.bold, color: ctx.errorRed, fontSize: 20),
+									textAlign: TextAlign.center,
+								),
+								const SizedBox(height: 12),
+								Text(
+									'El documento actual ya contiene firmas digitales.',
+									style: TextStyle(fontWeight: FontWeight.bold, color: ctx.textDark, fontSize: 14),
+									textAlign: TextAlign.center,
+								),
+								const SizedBox(height: 12),
+								Text(
+									'Si añades un documento referencial, el sistema reconstruirá el PDF y **perderás todas las firmas existentes**. Esta acción no se puede deshacer.',
+									style: TextStyle(color: ctx.textGrey, fontSize: 13),
+									textAlign: TextAlign.center,
+								),
+							],
+						),
+					),
+					actionsPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+					actions: [
+						Row(
+							mainAxisAlignment: MainAxisAlignment.end,
+							children: [
+								TextButton(
+									onPressed: () => Navigator.pop(ctx, false),
+									style: TextButton.styleFrom(foregroundColor: ctx.textGrey),
+									child: const Text('Cancelar'),
+								),
+								const SizedBox(width: 12),
+								ElevatedButton(
+									onPressed: () => Navigator.pop(ctx, true),
+									style: ElevatedButton.styleFrom(backgroundColor: ctx.errorRed),
+									child: const Text('Añadir y perder firmas'),
+								),
+							],
+						),
+					],
+				),
+			);
+
+			if (confirmar != true) return;
+		}
+
 		final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf'], withData: true);
 		if (result != null && result.files.single.bytes != null) {
 			setState(() {
@@ -265,11 +379,23 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	Future<void> _confirmar() async {
-		if (_modoManual && _posicionPorcentual == null) return;
-		if (!_modoManual && _posicionAutoElegida == null) return;
+		if (_posicionPorcentual == null) return;
 		
 		setState(() => _procesando = true);
 		try {
+			// --- COMPROBACIÓN DE SEGURIDAD PARA EL FOLIADO ---
+			bool yaFirmado = false;
+			if (_foliarDocumento) {
+				try {
+					yaFirmado = await ApiService().estaFirmado(
+						pdfBytes: widget.pdfBytes, // Verificamos el documento original
+						nombreArchivo: widget.nombreArchivo,
+					);
+				} catch (e) {
+					debugPrint('Error verificando firma para foliado: $e');
+				}
+			}
+
 			final boundary = _selloKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
 			if (boundary == null) throw Exception('No se encontró el sello visual');
 			
@@ -278,24 +404,83 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
 			final pngBytes = byteData!.buffer.asUint8List();
 
-			final pos = _modoManual ? _posicionPorcentual! : _posicionAutoElegida!;
-			final pageSize = _tamanos[_paginaFirma - 1];
-			
-			final xPuntos = pos.dx * pageSize.width;
-			final yPuntos = pos.dy * pageSize.height;
+			// 1. Preparamos el documento base (con o sin foliado)
+			Uint8List documentoParaFirmar = _documentoUnido;
 
-			if (!mounted) return;
-			
-			Navigator.of(context).pop({
-				'pdfBytes': _documentoUnido, 
-				'requiereFirma': _motivoSeleccionado != 'Visto bueno',
-				'imagenSello': pngBytes,
-				'pagina': _paginaFirma,
-				'x': xPuntos,
-				'y': yPuntos,
-				'ancho': _anchoFirma,
-				'alto': _altoFirma,
-			});
+			if (_foliarDocumento && !yaFirmado) {
+				final docFoliar = sf.PdfDocument(inputBytes: documentoParaFirmar);
+				final int total = docFoliar.pages.count;
+				final fuenteFoliar = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 8);
+				final negroFoliar = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
+
+				for (int i = 0; i < total; i++) {
+					final page = docFoliar.pages[i];
+					final numFolio = total - i;
+					
+					// Posición: Abajo a la derecha (margen de 20 puntos)
+					final xFolio = page.size.width - 30;
+					final yFolio = page.size.height - 20;
+					
+					page.graphics.drawString(
+						'$numFolio', 
+						fuenteFoliar, 
+						brush: negroFoliar, 
+						bounds: Rect.fromLTWH(xFolio, yFolio, 0, 0)
+					);
+				}
+				final foliadoBytes = await docFoliar.save();
+				docFoliar.dispose();
+				documentoParaFirmar = Uint8List.fromList(foliadoBytes);
+			}
+
+			// 2. Estampamos la firma (Visto Bueno o Firma Normal)
+			if (_motivoSeleccionado == 'Visto bueno') {
+				final decoded = img.decodeImage(pngBytes);
+				if (decoded == null) throw Exception('No se pudo decodificar la imagen');
+				final bitmap = sf.PdfBitmap(img.encodePng(decoded));
+
+				final document = sf.PdfDocument(inputBytes: documentoParaFirmar);
+				final page = document.pages[_paginaFirma - 1];
+
+				final pos = _posicionPorcentual!;
+				final x = pos.dx * page.size.width;
+				final y = pos.dy * page.size.height;
+				final g = page.graphics;
+
+				g.drawImage(
+					bitmap,
+					Rect.fromLTWH(x, y, _anchoFirma, _altoFirma),
+				);
+
+				final List<int> resultado = await document.save();
+				document.dispose();
+
+				if (!mounted) return;
+				
+				Navigator.of(context).pop({
+					'pdfBytes': Uint8List.fromList(resultado),
+					'requiereFirma': false,
+				});
+			} else {
+				final pos = _posicionPorcentual!;
+				final pageSize = _tamanos[_paginaFirma - 1];
+				
+				final xPuntos = pos.dx * pageSize.width;
+				final yPuntos = pos.dy * pageSize.height;
+
+				if (!mounted) return;
+				
+				Navigator.of(context).pop({
+					'pdfBytes': documentoParaFirmar, 
+					'requiereFirma': true,
+					'imagenSello': pngBytes,
+					'pagina': _paginaFirma,
+					'x': xPuntos,
+					'y': yPuntos,
+					'ancho': _anchoFirma,
+					'alto': _altoFirma,
+				});
+			}
 		} catch (e) {
 			debugPrint('[EditorFirma] Error: $e');
 			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -331,56 +516,51 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			return SizedBox(
 				width: _anchoFirma, 
 				height: _altoFirma, 
-				child: Align(
-					alignment: Alignment.centerLeft,
-					child: Padding(
-						padding: const EdgeInsets.only(left: 50), 
-						child: Container(
-							width: ladoSello,
-							height: ladoSello,
-							decoration: const BoxDecoration(shape: BoxShape.circle),
-							child: Stack(
-								alignment: Alignment.center,
-								children: [
-									Positioned.fill(
-										child: _imagenFirma(),
-									),
-									Padding(
-										padding: const EdgeInsets.symmetric(horizontal: 12),
-										child: Column(
-											mainAxisAlignment: MainAxisAlignment.center,
-											crossAxisAlignment: CrossAxisAlignment.center,
-											children: [
-												if (_direccionOficina.isNotEmpty) ...[
-													Text(
-														_direccionOficina.toUpperCase(), 
-														style: const TextStyle(fontSize: 6, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0), 
-														textAlign: TextAlign.center,
-														maxLines: 1,
-														overflow: TextOverflow.ellipsis,
-													),
-													const SizedBox(height: 1),
-												],
+				child: Center( 
+					child: SizedBox(
+						width: ladoSello,
+						height: ladoSello,
+						child: Stack(
+							alignment: Alignment.center,
+							children: [
+								Positioned.fill(
+									child: _imagenFirma(),
+								),
+								Padding(
+									padding: const EdgeInsets.symmetric(horizontal: 12),
+									child: Column(
+										mainAxisAlignment: MainAxisAlignment.center,
+										crossAxisAlignment: CrossAxisAlignment.center,
+										children: [
+											if (_direccionOficina.isNotEmpty) ...[
 												Text(
-													fechaStr, 
-													style: const TextStyle(fontSize: 5, color: Colors.black, height: 1.0), 
-													textAlign: TextAlign.center,
-													maxLines: 1,
-													overflow: TextOverflow.ellipsis,
-												),
-												const SizedBox(height: 2),
-												Text(
-													_motivoSeleccionado, 
+													_direccionOficina.toUpperCase(), 
 													style: const TextStyle(fontSize: 6, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0), 
 													textAlign: TextAlign.center,
 													maxLines: 1,
 													overflow: TextOverflow.ellipsis,
 												),
+												const SizedBox(height: 2),
 											],
-										),
+											Text(
+												fechaStr, 
+												style: const TextStyle(fontSize: 5, color: Colors.black, height: 1.0), 
+												textAlign: TextAlign.center,
+												maxLines: 1,
+												overflow: TextOverflow.ellipsis,
+											),
+											const SizedBox(height: 3),
+											Text(
+												_motivoSeleccionado, 
+												style: const TextStyle(fontSize: 6, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0), 
+												textAlign: TextAlign.center,
+												maxLines: 1,
+												overflow: TextOverflow.ellipsis,
+											),
+										],
 									),
-								],
-							),
+								),
+							],
 						),
 					),
 				),
@@ -410,45 +590,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 							],
 						),
 					),
-				],
-			),
-		);
-	}
-
-	Widget _opcionPosicion(PosicionFirma p, String tooltip) {
-		final seleccionado = _posicionAuto == p;
-		return Tooltip(
-			message: tooltip,
-			child: InkWell(
-				customBorder: const CircleBorder(),
-				onTap: () => _elegirPosicionAuto(p),
-				child: Padding(
-					padding: const EdgeInsets.all(6),
-					child: Icon(seleccionado ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded, size: 22, color: seleccionado ? context.primaryPurple : context.textGrey),
-				),
-			),
-		);
-	}
-
-	Widget _selectorPosicion() {
-		return Container(
-			margin: const EdgeInsets.only(top: 16),
-			padding: const EdgeInsets.all(12),
-			decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
-			child: Column(
-				children: [
-					Text('Posición en la página', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.textGrey)),
-					const SizedBox(height: 8),
-					Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-						_opcionPosicion(PosicionFirma.arribaIzquierda, 'Arriba izquierda'),
-						_opcionPosicion(PosicionFirma.arribaCentro, 'Arriba centro'),
-						_opcionPosicion(PosicionFirma.arribaDerecha, 'Arriba derecha'),
-					]),
-					Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-						_opcionPosicion(PosicionFirma.abajoIzquierda, 'Abajo izquierda'),
-						_opcionPosicion(PosicionFirma.abajoCentro, 'Abajo centro'),
-						_opcionPosicion(PosicionFirma.abajoDerecha, 'Abajo derecha'),
-					]),
 				],
 			),
 		);
@@ -562,52 +703,36 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 														setState(() {
 															_totalPaginas = document.pages.length;
 															_tamanos = document.pages.map((p) => Size(p.width, p.height)).toList();
-															if (_modoManual && _posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _paginaFirma);
+															if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _paginaFirma);
 														});
 													},
 													pageOverlaysBuilder: (context, pageRect, page) {
-														if (_modoManual) {
-															if (_posicionPorcentual == null || page.pageNumber != _paginaFirma) return const [];
-															final escala = pageRect.width / page.width;
-															return [
-																Positioned(
-																	left: _posicionPorcentual!.dx * pageRect.width,
-																	top: _posicionPorcentual!.dy * pageRect.height,
-																	child: GestureDetector(
-																		onPanUpdate: (details) {
-																			setState(() {
-																				final nuevo = Offset(_posicionPorcentual!.dx + details.delta.dx / pageRect.width, _posicionPorcentual!.dy + details.delta.dy / pageRect.height);
-																				_posicionPorcentual = _limitar(nuevo, _paginaFirma);
-																			});
-																		},
-																		child: MouseRegion(
-																			cursor: SystemMouseCursors.grab,
-																			child: SizedBox(
-																				width: _anchoFirma * escala,
-																				height: _altoFirma * escala,
-																				child: FittedBox(fit: BoxFit.fill, child: _firmaVisual()),
-																			),
+														if (_posicionPorcentual == null || page.pageNumber != _paginaFirma) return const [];
+														
+														final escala = pageRect.width / page.width;
+														return [
+															Positioned(
+																left: _posicionPorcentual!.dx * pageRect.width,
+																top: _posicionPorcentual!.dy * pageRect.height,
+																width: _anchoFirma * escala,
+																height: _altoFirma * escala,
+																child: GestureDetector(
+																	onPanUpdate: (details) {
+																		setState(() {
+																			final nuevo = Offset(_posicionPorcentual!.dx + details.delta.dx / pageRect.width, _posicionPorcentual!.dy + details.delta.dy / pageRect.height);
+																			_posicionPorcentual = _limitar(nuevo, _paginaFirma);
+																		});
+																	},
+																	child: MouseRegion(
+																		cursor: SystemMouseCursors.grab,
+																		child: FittedBox(
+																			fit: BoxFit.fill,
+																			child: _firmaVisual(),
 																		),
 																	),
 																),
-															];
-														} else {
-															if (_posicionAutoElegida == null) return const [];
-															final escala = pageRect.width / page.width;
-															return [
-																Positioned(
-																	left: _posicionAutoElegida!.dx * pageRect.width,
-																	top: _posicionAutoElegida!.dy * pageRect.height,
-																	child: IgnorePointer(
-																		child: SizedBox(
-																			width: _anchoFirma * escala,
-																			height: _altoFirma * escala,
-																			child: FittedBox(fit: BoxFit.fill, child: _firmaVisual()),
-																		),
-																	),
-																),
-															];
-														}
+															),
+														];
 													},
 												),
 											),
@@ -717,15 +842,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												),
 											),
 
-										if (_modoManual)
-											Positioned.fill(
-												child: DragTarget<Uint8List>(
-													onAcceptWithDetails: _alSoltar,
-													builder: (context, candidateData, rejectedData) {
-														return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? context.primaryPurple.withValues(alpha: 0.05) : Colors.transparent));
-													},
-												),
+										Positioned.fill(
+											child: DragTarget<Uint8List>(
+												onAcceptWithDetails: _alSoltar,
+												builder: (context, candidateData, rejectedData) {
+													return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? context.primaryPurple.withValues(alpha: 0.05) : Colors.transparent));
+												},
 											),
+										),
 										Positioned(
 											top: 12,
 											right: 12,
@@ -745,11 +869,20 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 											right: 0,
 											child: Center(
 												child: FloatingActionButton(
-													onPressed: _agregarReferencial,
+													onPressed: _procesando ? null : _agregarReferencial,
 													backgroundColor: context.primaryPurple,
 													foregroundColor: Colors.white,
-													tooltip: 'Añadir documento referencial',
-													child: const Icon(Icons.attach_file_rounded),
+													tooltip: _procesando ? 'Verificando documento...' : 'Añadir documento referencial',
+													child: _procesando
+															? const SizedBox(
+																	width: 20,
+																	height: 20,
+																	child: CircularProgressIndicator(
+																		strokeWidth: 2,
+																		color: Colors.white,
+																	),
+																)
+															: const Icon(Icons.attach_file_rounded),
 												),
 											),
 										),
@@ -787,19 +920,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													onChanged: (val) { 
 														if (val != null) {
 															setState(() {
-																// Si antes era Visto Bueno y ahora elige otra cosa
 																if (_motivoSeleccionado == 'Visto bueno' && val != 'Visto bueno') {
 																	_modoManual = true;
-																	_posicionPorcentual = null;      // <-- Borra la firma de la vista
-																	_posicionAutoElegida = null;     // <-- Borra la referencia automática
-																} 
-																// Si antes era una firma normal y ahora elige Visto Bueno
-																else if (val == 'Visto bueno') {
-																	_modoManual = false;
-																	_posicionAuto = PosicionFirma.abajoIzquierda;
-																	_colocarAutomatico();
+																	_posicionPorcentual = null;      
+																	_posicionAutoElegida = null;
+																	_foliarDocumento = true; // Al cambiar a firma, se activa por defecto
+																} else if (val == 'Visto bueno') {
+																	_foliarDocumento = false; // Al cambiar a visto bueno, se desactiva por defecto
 																}
-																
 																_motivoSeleccionado = val;
 															});
 														} 
@@ -823,66 +951,71 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												],
 												const Divider(height: 32),
 
-												if (_motivoSeleccionado != 'Visto bueno') ...[
-													// BOTÓN ÚNICO DE FIRMA MANUAL
-													OutlinedButton.icon(
-														onPressed: _colocarManual,
-														style: OutlinedButton.styleFrom(
-															backgroundColor: context.primaryPurple.withValues(alpha: 0.1),
-															foregroundColor: context.primaryPurple,
-															side: BorderSide(color: context.primaryPurple),
-															padding: const EdgeInsets.symmetric(vertical: 16),
-															shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
-														),
-														icon: const Icon(Icons.touch_app_outlined, size: 20),
-														label: const Text('Firma manual'),
+												// BOTÓN ÚNICO DE FIRMA MANUAL
+												OutlinedButton.icon(
+													onPressed: _colocarManual,
+													style: OutlinedButton.styleFrom(
+														backgroundColor: context.primaryPurple.withValues(alpha: 0.1),
+														foregroundColor: context.primaryPurple,
+														side: BorderSide(color: context.primaryPurple),
+														padding: const EdgeInsets.symmetric(vertical: 16),
+														shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
 													),
+													icon: const Icon(Icons.touch_app_outlined, size: 20),
+													label: const Text('Firma manual'),
+												),
 
-													const SizedBox(height: 24),
-													
-													// EL DRAGGABLE
-													Center(
-														child: Draggable<Uint8List>(
-															data: widget.imagenFirmaBytes,
-															dragAnchorStrategy: (draggable, context, position) => const Offset(_anchoFirma / 2, _altoFirma / 2),
-															feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: _firmaVisual())),
-															childWhenDragging: Opacity(opacity: 0.3, child: _imagenFirma(size: 50)),
-															child: Container(
-																padding: const EdgeInsets.all(8),
-																decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
-																child: Column(
-																	children: [
-																		_imagenFirma(size: 50),
-																		const SizedBox(height: 8),
-																		Text('Arrastra la firma hacia\nel documento', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: context.textGrey, fontWeight: FontWeight.w500)),
-																	],
-																),
+												const SizedBox(height: 24),
+												
+												// EL DRAGGABLE
+												Center(
+													child: Draggable<Uint8List>(
+														data: widget.imagenFirmaBytes,
+														dragAnchorStrategy: (draggable, context, position) => const Offset(_anchoFirma / 2, _altoFirma / 2),
+														feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: _firmaVisual())),
+														childWhenDragging: Opacity(opacity: 0.3, child: _imagenFirma(size: 50)),
+														child: Container(
+															padding: const EdgeInsets.all(8),
+															decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
+															child: Column(
+																children: [
+																	_imagenFirma(size: 50),
+																	const SizedBox(height: 8),
+																	Text('Arrastra la firma hacia\nel documento', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: context.textGrey, fontWeight: FontWeight.w500)),
+																],
 															),
 														),
 													),
-												],
+												),
 
-												if (_motivoSeleccionado == 'Visto bueno')
-													Container(
-														padding: const EdgeInsets.all(16),
-														decoration: BoxDecoration(
-															color: context.primaryPurple.withValues(alpha: 0.05),
-															borderRadius: BorderRadius.circular(context.radiusMd),
-															border: Border.all(color: context.primaryPurple.withValues(alpha: 0.2)),
-														),
-														child: Row(
-															children: [
-																Icon(Icons.info_outline_rounded, color: context.primaryPurple),
-																const SizedBox(width: 12),
-																Expanded(
-																	child: Text(
-																		'El sello de Visto Bueno se colocará automáticamente en la parte inferior izquierda de la página.',
-																		style: TextStyle(fontSize: 12, color: context.primaryPurple),
-																	),
-																),
-															],
-														),
+												const SizedBox(height: 16),
+												
+												// SWITCH PARA FOLIAR
+												Container(
+													padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+													decoration: BoxDecoration(
+														color: context.surfaceGrey,
+														borderRadius: BorderRadius.circular(context.radiusMd),
+														border: Border.all(color: context.borderColor),
 													),
+													child: Row(
+														mainAxisAlignment: MainAxisAlignment.spaceBetween,
+														children: [
+															Row(
+																children: [
+																	Icon(Icons.format_list_numbered_rounded, size: 20, color: context.textDark),
+																	const SizedBox(width: 8),
+																	Text('Foliar documento', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textDark)),
+																],
+															),
+															Switch(
+																value: _foliarDocumento,
+																activeColor: context.primaryPurple,
+																onChanged: (val) => setState(() => _foliarDocumento = val),
+															),
+														],
+													),
+												),
 											],
 										),
 									),
@@ -897,17 +1030,29 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										mainAxisSize: MainAxisSize.min,
 										children: [
 											ElevatedButton(
-												onPressed: _procesando || (_modoManual && _posicionPorcentual == null) || (!_modoManual && _posicionAutoElegida == null) ? null : _confirmar,
+												onPressed: _procesando || _posicionPorcentual == null ? null : _confirmar,
 												style: ElevatedButton.styleFrom(
 													backgroundColor: context.primaryPurple,
 													foregroundColor: Colors.white,
 													elevation: 0,
-													minimumSize: const Size.fromHeight(50),
+													minimumSize: const Size.fromHeight(56), // Un poco más alto para 2 líneas
 													shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill)),
 												),
 												child: _procesando
 														? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-														: const Text('Confirmar firma'),
+														: Column(
+																mainAxisAlignment: MainAxisAlignment.center,
+																children: [
+																	Text(
+																		_motivoSeleccionado == 'Visto bueno' ? 'Confirmar' : 'Confirmar firma',
+																		style: const TextStyle(fontSize: 14, height: 1.1, fontWeight: FontWeight.w500),
+																	),
+																	Text(
+																		_motivoSeleccionado == 'Visto bueno' ? 'Visto Bueno' : 'digital',
+																		style: const TextStyle(fontSize: 14, height: 1.1, fontWeight: FontWeight.w700),
+																	),
+																],
+															),
 											),
 											const SizedBox(height: 8),
 											TextButton(

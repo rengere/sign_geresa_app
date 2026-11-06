@@ -176,3 +176,29 @@ extension ApiServiceDocumentos on ApiService {
 		return res.bodyBytes;
 	}
 }
+
+// NUEVA EXTENSIÓN AÑADIDA (No modifica lo anterior)
+extension ApiServiceVerificacion on ApiService {
+	/// Verifica si un PDF ya tiene firmas digitales.
+	Future<bool> estaFirmado({
+		required Uint8List pdfBytes,
+		required String nombreArchivo,
+	}) async {
+		try {
+			final resultado = await verificar(
+				pdfBytes: pdfBytes,
+				nombreArchivo: nombreArchivo,
+			);
+			
+			// La API de Java devuelve un JSON con una lista en la llave "firmas"
+			final firmas = resultado['firmas'] as List?;
+			
+			// Si la lista tiene al menos un elemento, el documento está firmado
+			return (firmas != null && firmas.isNotEmpty);
+		} catch (e) {
+			// Usamos print en lugar de debugPrint porque este archivo no depende de Flutter
+			print('Error al verificar estado del PDF: $e');
+			return false; // Si falla la verificación, asumimos que no está firmado
+		}
+	}
+}

@@ -27,6 +27,7 @@ class FirmaScreen extends StatelessWidget {
 					icon: Icons.verified_user_rounded,
 					screen: VerifyScreen(),
 				),
+
 			],
 		);
 	}
