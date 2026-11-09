@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'archivo_pdf.dart';
+import 'package:printing/printing.dart';
 
 enum OpcionCompartir { whatsapp, correo, carpeta }
 
@@ -183,4 +184,13 @@ class ArchivosService {
 			throw ProcessException(exe, args, '${r.stderr}', r.exitCode);
 		}
 	}
+
+
+	Future<void> imprimir(String ruta) async {
+		final bytes = await File(ruta).readAsBytes();
+		await Printing.layoutPdf(
+			onLayout: (format) async => bytes,
+		);
+	}
+
 }

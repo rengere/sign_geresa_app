@@ -259,8 +259,24 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	Offset _limitar(Offset p, int pagina) {
 		if (_tamanos.isEmpty) return p;
 		final s = _tamanos[pagina - 1];
-		final maxX = (1 - _anchoFirma / s.width).clamp(0.0, 1.0);
-		final maxY = (1 - _altoFirma / s.height).clamp(0.0, 1.0);
+		
+		// 1. Calculamos el límite para el ancho (X)
+		double maxX;
+		if (_motivoSeleccionado == 'Visto bueno') {
+			// Si es Visto Bueno, el elemento visual mide 70px.
+			// Le damos un margen de 15px para que no toque el borde exacto del papel.
+			const double ladoSello = 70;
+			maxX = (1 - (ladoSello + 15) / s.width).clamp(0.0, 1.0);
+		} else {
+			// Si es firma normal, usamos el ancho completo de la firma (240px) 
+			// con un pequeño margen para que no se salga.
+			maxX = (1 - (_anchoFirma + 10) / s.width).clamp(0.0, 1.0);
+		}
+		
+		// 2. Calculamos el límite para el alto (Y)
+		// Usamos el alto de la firma (100px) con un margen de 10px.
+		final maxY = (1 - (_altoFirma + 10) / s.height).clamp(0.0, 1.0);
+		
 		return Offset(p.dx.clamp(0.0, maxX), p.dy.clamp(0.0, maxY));
 	}
 
@@ -510,16 +526,19 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		const estiloNormal = TextStyle(fontSize: 6.5, color: Colors.black, height: 1.0);
 		const estiloNegrita = TextStyle(fontSize: 7.5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0);
 
+		// --- DISEÑO ESPECIAL PARA VISTO BUENO ---
 		if (_motivoSeleccionado == 'Visto bueno') {
-			const double ladoSello = 70; 
+			const double ladoSello = 56; 
 
 			return SizedBox(
 				width: _anchoFirma, 
 				height: _altoFirma, 
-				child: Center( 
-					child: SizedBox(
+				child: Align(
+					alignment: Alignment.centerLeft,
+					child: Container(
 						width: ladoSello,
 						height: ladoSello,
+						decoration: const BoxDecoration(shape: BoxShape.circle),
 						child: Stack(
 							alignment: Alignment.center,
 							children: [
@@ -527,7 +546,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 									child: _imagenFirma(),
 								),
 								Padding(
-									padding: const EdgeInsets.symmetric(horizontal: 12),
+									padding: const EdgeInsets.symmetric(horizontal: 8), // Ajustado para el texto en 2 líneas
 									child: Column(
 										mainAxisAlignment: MainAxisAlignment.center,
 										crossAxisAlignment: CrossAxisAlignment.center,
@@ -535,26 +554,27 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 											if (_direccionOficina.isNotEmpty) ...[
 												Text(
 													_direccionOficina.toUpperCase(), 
-													style: const TextStyle(fontSize: 6, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0), 
+													style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0), 
 													textAlign: TextAlign.center,
 													maxLines: 1,
 													overflow: TextOverflow.ellipsis,
 												),
-												const SizedBox(height: 2),
+												const SizedBox(height: 1),
 											],
 											Text(
 												fechaStr, 
-												style: const TextStyle(fontSize: 5, color: Colors.black, height: 1.0), 
+												style: const TextStyle(fontSize: 4.5, color: Colors.black, height: 1.0), 
 												textAlign: TextAlign.center,
 												maxLines: 1,
 												overflow: TextOverflow.ellipsis,
 											),
-											const SizedBox(height: 3),
+											const SizedBox(height: 2),
 											Text(
-												_motivoSeleccionado, 
-												style: const TextStyle(fontSize: 6, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0), 
+												// AQUÍ ESTÁ EL CAMBIO: Forzamos el salto de línea
+												_motivoSeleccionado == 'Visto bueno' ? 'Visto\nbueno' : _motivoSeleccionado, 
+												style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1), 
 												textAlign: TextAlign.center,
-												maxLines: 1,
+												maxLines: 2,
 												overflow: TextOverflow.ellipsis,
 											),
 										],
@@ -567,6 +587,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			);
 		}
 
+		// --- DISEÑO NORMAL (Firma Digital) ---
 		return SizedBox(
 			width: _anchoFirma,
 			height: _altoFirma,
@@ -594,6 +615,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			),
 		);
 	}
+
 
 	Widget _botonZoom(IconData icono, String tooltip, VoidCallback onTap) {
 		return Material(

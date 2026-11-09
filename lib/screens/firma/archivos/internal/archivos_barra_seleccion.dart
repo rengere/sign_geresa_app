@@ -4,23 +4,25 @@ import 'package:flutter/material.dart';
 class ArchivosBarraSeleccion extends StatelessWidget {
 	final int cantidad;
 	final int totalFiltrados;
+	final bool esProyectado; // <-- NUEVO PARÁMETRO
 	final VoidCallback onSeleccionarTodos;
 	final VoidCallback onCancelar;
 	final VoidCallback onDescargar;
-	final VoidCallback onCompartir;
+	// final VoidCallback onCompartir; // <-- COMENTADO
 	final VoidCallback onEliminar;
-	final VoidCallback onSuprimir;
+	// final VoidCallback onSuprimir; // <-- COMENTADO
 
 	const ArchivosBarraSeleccion({
 		super.key,
 		required this.cantidad,
 		required this.totalFiltrados,
+		required this.esProyectado, // <-- AÑADIDO
 		required this.onSeleccionarTodos,
 		required this.onCancelar,
 		required this.onDescargar,
-		required this.onCompartir,
+		// required this.onCompartir, // <-- COMENTADO
 		required this.onEliminar,
-		required this.onSuprimir,
+		// required this.onSuprimir, // <-- COMENTADO
 	});
 
 	@override
@@ -49,9 +51,13 @@ class ArchivosBarraSeleccion extends StatelessWidget {
 					],
 					const Spacer(),
 					_Boton(icono: Icons.download_outlined, texto: 'Descargar', onTap: onDescargar),
-					_Boton(icono: Icons.share_outlined, texto: 'Compartir', onTap: onCompartir),
-					_Boton(icono: Icons.delete_outline_rounded, texto: 'Eliminar', onTap: onEliminar),
-					_Boton(icono: Icons.delete_forever_outlined, texto: 'Suprimir', onTap: onSuprimir),
+					// _Boton(icono: Icons.share_outlined, texto: 'Compartir', onTap: onCompartir), // <-- COMENTADO
+					
+					// SOLO MOSTRAMOS ELIMINAR SI ES PROYECTADO
+					if (esProyectado)
+						_Boton(icono: Icons.delete_outline_rounded, texto: 'Eliminar', onTap: onEliminar),
+					
+					// _Boton(icono: Icons.delete_forever_outlined, texto: 'Suprimir', onTap: onSuprimir), // <-- COMENTADO
 				],
 			),
 		);

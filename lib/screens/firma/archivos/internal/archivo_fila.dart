@@ -15,6 +15,7 @@ class ColumnasTabla {
 class ArchivoFila extends StatelessWidget {
 	final ArchivoPdf archivo;
 	final bool seleccionado;
+	final bool esProyectado; 
 	final VoidCallback onToggle;
 	final ValueChanged<AccionArchivo> onAccion;
 
@@ -22,6 +23,7 @@ class ArchivoFila extends StatelessWidget {
 		super.key,
 		required this.archivo,
 		required this.seleccionado,
+		required this.esProyectado, 
 		required this.onToggle,
 		required this.onAccion,
 	});
@@ -34,7 +36,7 @@ class ArchivoFila extends StatelessWidget {
 			color: context.surfaceWhite,
 			elevation: 8,
 			shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
-			items: construirItemsMenu(context),
+			items: construirItemsMenu(context, esProyectado: esProyectado),
 		);
 		if (accion != null) onAccion(accion);
 	}
@@ -105,7 +107,7 @@ class ArchivoFila extends StatelessWidget {
 									elevation: 8,
 									shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
 									onSelected: onAccion,
-									itemBuilder: construirItemsMenu,
+									itemBuilder: (context) => construirItemsMenu(context, esProyectado: esProyectado),
 								),
 							),
 						],

@@ -10,6 +10,7 @@ class ArchivosTabla extends StatelessWidget {
 	final Set<String> seleccion;
 	final CampoOrden campoOrden;
 	final bool ascendente;
+	final bool esProyectado; // <-- NUEVO PARÁMETRO
 	final ValueChanged<CampoOrden> onOrdenar;
 	final ValueChanged<ArchivoPdf> onToggle;
 	final VoidCallback onToggleTodos;
@@ -21,6 +22,7 @@ class ArchivosTabla extends StatelessWidget {
 		required this.seleccion,
 		required this.campoOrden,
 		required this.ascendente,
+		required this.esProyectado, // <-- AÑADIDO
 		required this.onOrdenar,
 		required this.onToggle,
 		required this.onToggleTodos,
@@ -42,6 +44,7 @@ class ArchivosTabla extends StatelessWidget {
 							return ArchivoFila(
 								archivo: a,
 								seleccionado: seleccion.contains(a.ruta),
+								esProyectado: esProyectado, // <-- AÑADIDO
 								onToggle: () => onToggle(a),
 								onAccion: (accion) => onAccion(accion, a),
 							);

@@ -3,29 +3,37 @@ import 'package:flutter/material.dart';
 
 enum AccionArchivo {
 	verEnApp,
+	firmarDigitalmente,
 	abrirExterno,
 	mostrarCarpeta,
 	descargar,
-	compartir,
+	// compartir, // <-- COMENTADO
 	renombrar,
 	detalles,
 	eliminar,
-	suprimir,
+	// suprimir, // <-- COMENTADO
 }
 
 /// Items compartidos por el botón ⋮ y por el clic derecho.
-List<PopupMenuEntry<AccionArchivo>> construirItemsMenu(BuildContext context) {
+List<PopupMenuEntry<AccionArchivo>> construirItemsMenu(BuildContext context, {required bool esProyectado}) {
 	return [
 		_item(context, AccionArchivo.verEnApp, Icons.visibility_outlined, 'Ver en la app'),
+		if (esProyectado)
+			_item(context, AccionArchivo.firmarDigitalmente, Icons.draw_rounded, 'Firmar digitalmente', color: context.primaryPurple),
+		const PopupMenuDivider(),
 		_item(context, AccionArchivo.abrirExterno, Icons.open_in_new_rounded, 'Abrir documento'),
 		_item(context, AccionArchivo.mostrarCarpeta, Icons.folder_open_outlined, 'Mostrar en carpeta'),
 		_item(context, AccionArchivo.descargar, Icons.download_outlined, 'Descargar'),
-		_item(context, AccionArchivo.compartir, Icons.share_outlined, 'Compartir'),
+		// _item(context, AccionArchivo.compartir, Icons.share_outlined, 'Compartir'), // <-- COMENTADO
 		_item(context, AccionArchivo.renombrar, Icons.drive_file_rename_outline_rounded, 'Renombrar'),
 		_item(context, AccionArchivo.detalles, Icons.info_outline_rounded, 'Ver detalles'),
 		const PopupMenuDivider(),
-		_item(context, AccionArchivo.eliminar, Icons.delete_outline_rounded, 'Eliminar', color: context.accentCoral),
-		_item(context, AccionArchivo.suprimir, Icons.delete_forever_outlined, 'Suprimir', color: context.errorRed),
+		
+		// SOLO MOSTRAMOS ELIMINAR SI ES PROYECTADO
+		if (esProyectado)
+			_item(context, AccionArchivo.eliminar, Icons.delete_outline_rounded, 'Eliminar', color: context.accentCoral),
+		
+		// _item(context, AccionArchivo.suprimir, Icons.delete_forever_outlined, 'Suprimir', color: context.errorRed), // <-- COMENTADO
 	];
 }
 

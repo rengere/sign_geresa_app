@@ -1,9 +1,13 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:calendar_date_picker2/calendar_date_picker2.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
+import 'package:firmador_geresa/screens/firma/firmar/editor/editor_firma_modal.dart';
+import 'package:firmador_geresa/screens/firma/firmar/popup_firma.dart';
+import 'package:firmador_geresa/services/api_service.dart';
 import 'package:flutter/material.dart';
 
 import 'archivo_menu_acciones.dart';
@@ -17,10 +21,7 @@ import 'archivos_toolbar.dart';
 import 'visor_pdf_dialog.dart';
 
 class BoxVerArchivos extends StatefulWidget {
-	/// La ruta exacta de la carpeta a listar.
 	final String rutaCarpeta;
-	
-	/// Define si es "firmados" o "proyectados"
 	final String tipo;
 
 	const BoxVerArchivos({
@@ -67,7 +68,6 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 	Future<void> _cargar() async {
 		if (_todos.isEmpty) setState(() => _cargando = true);
 		try {
-			// Usa directamente la ruta que le pasaron desde afuera
 			final lista = await _service.listar(widget.rutaCarpeta);
 			if (!mounted) return;
 			setState(() {
@@ -150,10 +150,89 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 		}
 	}
 
+	// FUNCIÓN PARA FIRMAR DOCUMENTOS PROYECTADOS
+	Future<void> _firmarDocumentoProyectado(ArchivoPdf archivo) async {
+		try {
+			final bytes = await File(archivo.ruta).readAsBytes();
+
+			final api = ApiService();
+			TitularCertificado? titular;
+			int intentos = 0;
+
+			while (intentos < 5) {
+				try {
+					titular = await api.obtenerTitular();
+					break;
+				} catch (e) {
+					intentos++;
+					if (intentos >= 5) rethrow;
+					await Future.delayed(const Duration(milliseconds: 200));
+				}
+			}
+
+			if (!mounted) return;
+
+			final dataNormal = await DefaultAssetBundle.of(context).load('lib/assets/images/logo_firma.png');
+			final dataVB = await DefaultAssetBundle.of(context).load('lib/assets/images/logo_vb.png');
+
+			if (!mounted) return;
+
+			final resultadoEditor = await Navigator.of(context).push<Map<String, dynamic>>(
+				MaterialPageRoute(
+					builder: (_) => EditorFirmaModal(
+						pdfBytes: bytes,
+						nombreArchivo: archivo.nombre,
+						imagenFirmaBytes: dataNormal.buffer.asUint8List(),
+						imagenVistoBuenoBytes: dataVB.buffer.asUint8List(),
+						nombreFirmante: titular!.nombre,
+						dniFirmante: titular.dni,
+					),
+				),
+			);
+
+			if (resultadoEditor == null || !mounted) return;
+
+			final pdfProcesado = resultadoEditor['pdfBytes'] as Uint8List;
+			final requiereFirma = resultadoEditor['requiereFirma'] as bool;
+
+			if (requiereFirma) {
+				await showDialog(
+					context: context,
+					barrierDismissible: false,
+					builder: (_) => PopupFirma(
+						pdfBytes: pdfProcesado,
+						nombreArchivo: archivo.nombre,
+						rutaBackup: widget.rutaCarpeta,
+						esVistoBueno: false,
+						imagenSello: resultadoEditor['imagenSello'],
+						pagina: resultadoEditor['pagina'],
+						x: resultadoEditor['x'],
+						y: resultadoEditor['y'],
+						ancho: resultadoEditor['ancho'],
+						alto: resultadoEditor['alto'],
+					),
+				);
+			} else {
+				await File(archivo.ruta).writeAsBytes(pdfProcesado);
+				if (mounted) {
+					_aviso('Documento firmado (Visto Bueno) y actualizado', error: false);
+				}
+			}
+			
+			if (mounted) await _cargar();
+
+		} catch (e) {
+			if (!mounted) return;
+			_aviso('Error al firmar: $e', error: true);
+		}
+	}
+
 	Future<void> _ejecutarAccion(AccionArchivo accion, ArchivoPdf a) async {
 		switch (accion) {
 			case AccionArchivo.verEnApp:
 				return _verEnApp(a);
+			case AccionArchivo.firmarDigitalmente:
+				return _firmarDocumentoProyectado(a);
 			case AccionArchivo.abrirExterno:
 				return _abrirExterno(a);
 			case AccionArchivo.mostrarCarpeta:
@@ -163,8 +242,8 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 				});
 			case AccionArchivo.descargar:
 				return _guardarComo(a);
-			case AccionArchivo.compartir:
-				return _compartir([a]);
+			// case AccionArchivo.compartir: // <-- COMENTADO
+			// 	return _compartir([a]); // <-- COMENTADO
 			case AccionArchivo.renombrar:
 				return _renombrar(a);
 			case AccionArchivo.detalles:
@@ -172,8 +251,8 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 				return;
 			case AccionArchivo.eliminar:
 				return _eliminar([a]);
-			case AccionArchivo.suprimir:
-				return _suprimir([a]);
+			// case AccionArchivo.suprimir: // <-- COMENTADO
+			// 	return _suprimir([a]); // <-- COMENTADO
 		}
 	}
 
@@ -206,11 +285,11 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 		});
 	}
 
-	Future<void> _compartir(List<ArchivoPdf> archivos) async {
-		final opcion = await mostrarCompartir(context, cantidad: archivos.length);
-		if (opcion == null) return;
-		await _intentar(() => _service.compartir(opcion, archivos));
-	}
+	// Future<void> _compartir(List<ArchivoPdf> archivos) async { // <-- COMENTADO
+	// 	final opcion = await mostrarCompartir(context, cantidad: archivos.length);
+	// 	if (opcion == null) return;
+	// 	await _intentar(() => _service.compartir(opcion, archivos));
+	// } // <-- COMENTADO
 
 	Future<void> _renombrar(ArchivoPdf a) async {
 		final existentes = _todos.where((x) => x.ruta != a.ruta).map((x) => x.nombre.toLowerCase()).toSet();
@@ -244,26 +323,26 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 		});
 	}
 
-	Future<void> _suprimir(List<ArchivoPdf> archivos) async {
-		final uno = archivos.length == 1;
-		final ok = await mostrarConfirmacion(
-			context,
-			titulo: uno ? '¿Suprimir definitivamente?' : '¿Suprimir ${archivos.length} archivos?',
-			mensaje: uno
-					? '"${archivos.first.nombre}" se borrará de forma permanente del disco. Esta acción no se puede deshacer.'
-					: 'Estos ${archivos.length} archivos se borrarán de forma permanente del disco. Esta acción no se puede deshacer.',
-			textoConfirmar: 'Suprimir',
-			colorConfirmar: context.errorRed,
-		);
-		if (!ok || !mounted) return;
-		await _intentar(() async {
-			for (final a in archivos) {
-				await _service.suprimir(a);
-			}
-			await _cargar();
-			return uno ? 'Archivo suprimido' : '${archivos.length} archivos suprimidos';
-		});
-	}
+	// Future<void> _suprimir(List<ArchivoPdf> archivos) async { // <-- COMENTADO
+	// 	final uno = archivos.length == 1;
+	// 	final ok = await mostrarConfirmacion(
+	// 		context,
+	// 		titulo: uno ? '¿Suprimir definitivamente?' : '¿Suprimir ${archivos.length} archivos?',
+	// 		mensaje: uno
+	// 				? '"${archivos.first.nombre}" se borrará de forma permanente del disco. Esta acción no se puede deshacer.'
+	// 				: 'Estos ${archivos.length} archivos se borrarán de forma permanente del disco. Esta acción no se puede deshacer.',
+	// 		textoConfirmar: 'Suprimir',
+	// 		colorConfirmar: context.errorRed,
+	// 	);
+	// 	if (!ok || !mounted) return;
+	// 	await _intentar(() async {
+	// 		for (final a in archivos) {
+	// 			await _service.suprimir(a);
+	// 		}
+	// 		await _cargar();
+	// 		return uno ? 'Archivo suprimido' : '${archivos.length} archivos suprimidos';
+	// 	});
+	// } // <-- COMENTADO
 
 	Future<void> _descargarSeleccion() {
 		return _intentar(() async {
@@ -393,12 +472,13 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 									child: ArchivosBarraSeleccion(
 										cantidad: _seleccion.length,
 										totalFiltrados: filtrados.length,
+										esProyectado: widget.tipo == 'proyectados',
 										onSeleccionarTodos: () => setState(() => _seleccion.addAll(filtrados.map((a) => a.ruta))),
 										onCancelar: () => setState(_seleccion.clear),
 										onDescargar: _descargarSeleccion,
-										onCompartir: () => _compartir(_seleccionados()),
+										// onCompartir: () => _compartir(_seleccionados()), // <-- COMENTADO
 										onEliminar: () => _eliminar(_seleccionados()),
-										onSuprimir: () => _suprimir(_seleccionados()),
+										// onSuprimir: () => _suprimir(_seleccionados()), // <-- COMENTADO
 									),
 								),
 				),
@@ -425,7 +505,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 			return _estado(
 				icono: Icons.folder_off_outlined,
 				titulo: 'No se pudo leer la carpeta',
-				mensaje: '${widget.rutaCarpeta}\n$_error', // <-- Usa la ruta del widget
+				mensaje: '${widget.rutaCarpeta}\n$_error',
 				textoBoton: 'Reintentar',
 				onBoton: _cargar,
 			);
@@ -434,7 +514,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 			return _estado(
 				icono: Icons.picture_as_pdf_outlined,
 				titulo: 'No hay archivos PDF',
-				mensaje: 'La carpeta ${widget.rutaCarpeta} no tiene documentos.', // <-- Usa la ruta del widget
+				mensaje: 'La carpeta ${widget.rutaCarpeta} no tiene documentos.',
 				textoBoton: 'Actualizar',
 				onBoton: _cargar,
 			);
@@ -457,6 +537,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 						seleccion: _seleccion,
 						campoOrden: _campo,
 						ascendente: _ascendente,
+						esProyectado: widget.tipo == 'proyectados',
 						onOrdenar: _ordenar,
 						onToggle: _toggle,
 						onToggleTodos: () => _toggleTodosPagina(visibles),

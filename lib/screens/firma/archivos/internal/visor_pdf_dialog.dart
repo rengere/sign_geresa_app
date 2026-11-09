@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:pdfrx/pdfrx.dart';
+import 'package:printing/printing.dart';
 
 import 'archivo_pdf.dart';
 
@@ -9,6 +11,21 @@ class VisorPdfDialog extends StatelessWidget {
 	final VoidCallback onAbrirExterno;
 
 	const VisorPdfDialog({super.key, required this.archivo, required this.onAbrirExterno});
+
+	Future<void> _imprimir(BuildContext context) async {
+		try {
+			final bytes = await File(archivo.ruta).readAsBytes();
+			await Printing.layoutPdf(
+				onLayout: (format) async => bytes,
+			);
+		} catch (e) {
+			if (context.mounted) {
+				ScaffoldMessenger.of(context).showSnackBar(
+					SnackBar(content: Text('Error al imprimir: $e')),
+				);
+			}
+		}
+	}
 
 	@override
 	Widget build(BuildContext context) {
@@ -36,12 +53,24 @@ class VisorPdfDialog extends StatelessWidget {
 											style: Theme.of(context).textTheme.titleMedium,
 										),
 									),
+									
+									// NUEVO BOTÓN DE IMPRIMIR
+									TextButton.icon(
+										onPressed: () => _imprimir(context),
+										icon: const Icon(Icons.print_rounded, size: 18),
+										label: const Text('Imprimir'),
+										style: TextButton.styleFrom(
+											foregroundColor: context.primaryPurple,
+										),
+									),
+									const SizedBox(width: 8),
+
 									TextButton.icon(
 										onPressed: onAbrirExterno,
 										icon: const Icon(Icons.open_in_new_rounded, size: 18),
-										label: const Text('Abrir en programa predeterminado'),
+										label: const Text('Abrir externo'),
 									),
-									const SizedBox(width: 4),
+									const SizedBox(width: 8),
 									IconButton(
 										tooltip: 'Cerrar',
 										onPressed: () => Navigator.pop(context),
