@@ -255,29 +255,27 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			_actualizarDocumentoUnido();
 		});
 	}
-
+	
 	Offset _limitar(Offset p, int pagina) {
 		if (_tamanos.isEmpty) return p;
 		final s = _tamanos[pagina - 1];
 		
-		// 1. Calculamos el límite para el ancho (X)
-		double maxX;
-		if (_motivoSeleccionado == 'Visto bueno') {
-			// Si es Visto Bueno, el elemento visual mide 70px.
-			// Le damos un margen de 15px para que no toque el borde exacto del papel.
-			const double ladoSello = 70;
-			maxX = (1 - (ladoSello + 15) / s.width).clamp(0.0, 1.0);
-		} else {
-			// Si es firma normal, usamos el ancho completo de la firma (240px) 
-			// con un pequeño margen para que no se salga.
-			maxX = (1 - (_anchoFirma + 10) / s.width).clamp(0.0, 1.0);
-		}
-		
-		// 2. Calculamos el límite para el alto (Y)
-		// Usamos el alto de la firma (100px) con un margen de 10px.
-		final maxY = (1 - (_altoFirma + 10) / s.height).clamp(0.0, 1.0);
-		
-		return Offset(p.dx.clamp(0.0, maxX), p.dy.clamp(0.0, maxY));
+		final double anchoActual = _motivoSeleccionado == 'Visto bueno' ? 56.0 : _anchoFirma;
+		final double altoActual = _motivoSeleccionado == 'Visto bueno' ? 56.0 : _altoFirma;
+
+		// Calculamos el límite máximo permitido.
+		// Le restamos el ancho de la firma al ancho de la hoja y le sumamos 10 puntos
+		// para que el borde derecho de la caja quede 10px más allá del límite, 
+		// asegurando que el texto no se corte.
+		final double maxX = (1 - (anchoActual / s.width)) + (10 / s.width);
+		final double maxY = (1 - (altoActual / s.height)) + (10 / s.height);
+
+		// Usamos clamp con el límite superior de 1.0 para que Java no lance el error 
+		// de "fuera de la página", pero permitiendo que se acerque mucho al borde.
+		return Offset(
+			p.dx.clamp(0.0, maxX.clamp(0.0, 1.0)), 
+			p.dy.clamp(0.0, maxY.clamp(0.0, 1.0))
+		);
 	}
 
 	void _irAPagina(int pagina) {
