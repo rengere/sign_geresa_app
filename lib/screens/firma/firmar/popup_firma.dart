@@ -11,10 +11,9 @@ enum _EstadoDialogoFirma { pin, cargando, exito, error }
 class PopupFirma extends StatefulWidget {
 	final Uint8List pdfBytes;
 	final String nombreArchivo;
-	final String? rutaBackup;
+	final String? rutaDestinoFinal; // Ruta final (Firmados o Proyectados)
 	final bool esVistoBueno;
 
-	// NUEVOS PARÁMETROS PARA EL SELLO
 	final Uint8List? imagenSello;
 	final int? pagina;
 	final double? x;
@@ -26,7 +25,7 @@ class PopupFirma extends StatefulWidget {
 		super.key,
 		required this.pdfBytes,
 		required this.nombreArchivo,
-		required this.rutaBackup,
+		this.rutaDestinoFinal, // <-- Solo el destino
 		this.esVistoBueno = false,
 		this.imagenSello,
 		this.pagina,
@@ -55,10 +54,9 @@ class _PopupFirmaState extends State<PopupFirma> {
 		super.initState();
 		if (widget.esVistoBueno) {
 			_estado = _EstadoDialogoFirma.exito;
-			_pdfFirmado = widget.pdfBytes; // El PDF que ya viene con el sello pegado por Java o Flutter
-			_guardarBackupSilencioso(widget.pdfBytes); 
+			_pdfFirmado = widget.pdfBytes; 
+			_guardarCopia(widget.pdfBytes); 
 		} else {
-			// Flujo normal con PIN
 			_estado = _EstadoDialogoFirma.pin;
 			WidgetsBinding.instance.addPostFrameCallback((_) {
 				if (mounted) _pinFocusNode.requestFocus();
@@ -66,36 +64,22 @@ class _PopupFirmaState extends State<PopupFirma> {
 		}
 	}
 
-	Future<void> _guardarBackupSilencioso(Uint8List bytes) async {
-		if (widget.rutaBackup != null) {
+	// SOLO guarda la copia, no borra nada
+	Future<void> _guardarCopia(Uint8List bytes) async {
+		final ahora = DateTime.now();
+		final timestamp = '${ahora.day.toString().padLeft(2, '0')}-${ahora.month.toString().padLeft(2, '0')}-${ahora.year}_${ahora.hour.toString().padLeft(2, '0')}-${ahora.minute.toString().padLeft(2, '0')}-${ahora.second.toString().padLeft(2, '0')}';
+		final nombreBase = widget.nombreArchivo.toLowerCase().endsWith('.pdf') ? widget.nombreArchivo.substring(0, widget.nombreArchivo.length - 4) : widget.nombreArchivo;
+		final nombreBackup = '${nombreBase}_$timestamp.pdf';
+
+		if (widget.rutaDestinoFinal != null) {
 			try {
-				final ahora = DateTime.now();
-				final timestamp = '${ahora.day.toString().padLeft(2, '0')}-${ahora.month.toString().padLeft(2, '0')}-${ahora.year}_${ahora.hour.toString().padLeft(2, '0')}-${ahora.minute.toString().padLeft(2, '0')}-${ahora.second.toString().padLeft(2, '0')}';
-				final nombreBase = widget.nombreArchivo.toLowerCase().endsWith('.pdf') ? widget.nombreArchivo.substring(0, widget.nombreArchivo.length - 4) : widget.nombreArchivo;
-				final nombreBackup = '${nombreBase}_$timestamp.pdf';
-				
-				final destino = File('${widget.rutaBackup}${Platform.pathSeparator}$nombreBackup');
+				final destino = File('${widget.rutaDestinoFinal}${Platform.pathSeparator}$nombreBackup');
 				await destino.writeAsBytes(bytes);
-				debugPrint('[Firmar] Backup guardado en: ${destino.path}');
+				debugPrint('[Firmar] Copia guardada en: ${destino.path}');
 			} catch (e) {
-				debugPrint('[Firmar] No se pudo guardar el backup: $e');
+				debugPrint('[Firmar] Error al guardar copia: $e');
 			}
 		}
-	}
-
-	String _getSufijoConfigurado() {
-		final guardado = JsonStorage.getString('firma_sufijo');
-		if (guardado == null || guardado.trim().isEmpty) return 'FG';
-		return guardado.trim().toUpperCase();
-	}
-
-	String _forzarNombreCorrecto(String rutaIngresada, {required String nombreFallback}) {
-		String nombre = rutaIngresada.split(Platform.pathSeparator).last;
-		if (nombre.toLowerCase().endsWith('.pdf')) nombre = nombre.substring(0, nombre.length - 4);
-		nombre = nombre.replaceAll(RegExp(r'\[.*?\]'), '').trim();
-		if (nombre.isEmpty) nombre = nombreFallback;
-		final sufijo = _getSufijoConfigurado();
-		return '$nombre [$sufijo].pdf';
 	}
 
 	Future<void> _firmar() async {
@@ -113,7 +97,9 @@ class _PopupFirmaState extends State<PopupFirma> {
 				ancho: widget.ancho,
 				alto: widget.alto,
 			);
-			_guardarBackupSilencioso(pdfFirmado);
+			
+			await _guardarCopia(pdfFirmado);
+
 			setState(() {
 				_pdfFirmado = pdfFirmado;
 				_estado = _EstadoDialogoFirma.exito;
@@ -126,6 +112,21 @@ class _PopupFirmaState extends State<PopupFirma> {
 		} finally {
 			_pinCtrl.clear();
 		}
+	}
+
+	String _getSufijoConfigurado() {
+		final guardado = JsonStorage.getString('firma_sufijo');
+		if (guardado == null || guardado.trim().isEmpty) return 'FG';
+		return guardado.trim().toUpperCase();
+	}
+
+	String _forzarNombreCorrecto(String rutaIngresada, {required String nombreFallback}) {
+		String nombre = rutaIngresada.split(Platform.pathSeparator).last;
+		if (nombre.toLowerCase().endsWith('.pdf')) nombre = nombre.substring(0, nombre.length - 4);
+		nombre = nombre.replaceAll(RegExp(r'\[.*?\]'), '').trim();
+		if (nombre.isEmpty) nombre = nombreFallback;
+		final sufijo = _getSufijoConfigurado();
+		return '$nombre [$sufijo].pdf';
 	}
 
 	Future<void> _guardarComo() async {

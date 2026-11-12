@@ -39,13 +39,12 @@ class RutaDesplegable extends StatelessWidget {
 				backgroundColor: context.surfaceWhite,
 				collapsedBackgroundColor: context.surfaceGrey,
 				children: [
-					// ALTURA FIJA para evitar el colapso
 					SizedBox(
 						height: 400,
 						child: Padding(
 							padding: const EdgeInsets.all(16.0),
 							child: BoxVerArchivos(
-								rutaCarpeta: rutaCompleta,
+								rutaCarpetaPrincipal: rutaCompleta, // <-- CORREGIDO AQUÍ
 								tipo: tipo,
 							),
 						),

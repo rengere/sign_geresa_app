@@ -14,11 +14,15 @@ class BoxFirmaGeresa extends StatefulWidget {
 }
 
 class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
+	// Listas para Firma
 	List<String> _motivosExtra = [];
 	List<String> _cargos = [];
-	
-	String _motivoSeleccionado = motivosPredeterminados.first;
+	String _motivoSeleccionado = motivosFirmaPred.first;
 	String? _cargoSeleccionado;
+
+	// Listas para Visto Bueno
+	List<String> _motivosVbExtra = [];
+	String _motivoVbSeleccionado = motivosVistoBuenoPred.first;
 
 	@override
 	void initState() {
@@ -27,14 +31,15 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 	}
 
 	void _cargarDatos() {
+		// --- Cargar Firma ---
 		_motivosExtra = (JsonStorage.getJson('firma_motivos_extra') as List?)?.cast<String>() ?? [];
 		_cargos = (JsonStorage.getJson('firma_cargos') as List?)?.cast<String>() ?? [];
 		
 		final motivoGuardado = JsonStorage.getString('firma_motivo_activo');
-		if (motivoGuardado != null && (motivosPredeterminados.contains(motivoGuardado) || _motivosExtra.contains(motivoGuardado))) {
+		if (motivoGuardado != null && (motivosFirmaPred.contains(motivoGuardado) || _motivosExtra.contains(motivoGuardado))) {
 			_motivoSeleccionado = motivoGuardado;
 		} else {
-			_motivoSeleccionado = motivosPredeterminados.first;
+			_motivoSeleccionado = motivosFirmaPred.first;
 		}
 
 		final cargoGuardado = JsonStorage.getString('firma_cargo_activo');
@@ -43,9 +48,19 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 		} else if (_cargos.isNotEmpty) {
 			_cargoSeleccionado = _cargos.first;
 		}
+
+		// --- Cargar Visto Bueno ---
+		_motivosVbExtra = (JsonStorage.getJson('vb_motivos_extra') as List?)?.cast<String>() ?? [];
+		
+		final motivoVbGuardado = JsonStorage.getString('vb_motivo_activo');
+		if (motivoVbGuardado != null && (motivosVistoBuenoPred.contains(motivoVbGuardado) || _motivosVbExtra.contains(motivoVbGuardado))) {
+			_motivoVbSeleccionado = motivoVbGuardado;
+		} else {
+			_motivoVbSeleccionado = motivosVistoBuenoPred.first;
+		}
 	}
 
-	Future<void> _mostrarPopupAgregar({required bool isMotivo}) async {
+	Future<void> _mostrarPopupAgregar({required bool isMotivo, required bool isVb}) async {
 		final TextEditingController ctrl = TextEditingController();
 		final String tipo = isMotivo ? 'Motivo' : 'Cargo';
 
@@ -83,7 +98,12 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 		if (result == true && ctrl.text.trim().isNotEmpty) {
 			final txt = ctrl.text.trim();
 			setState(() {
-				if (isMotivo) {
+				if (isVb) {
+					_motivosVbExtra.add(txt);
+					JsonStorage.setJson('vb_motivos_extra', _motivosVbExtra);
+					_motivoVbSeleccionado = txt;
+					JsonStorage.setString('vb_motivo_activo', txt);
+				} else if (isMotivo) {
 					_motivosExtra.add(txt);
 					JsonStorage.setJson('firma_motivos_extra', _motivosExtra);
 					_motivoSeleccionado = txt;
@@ -104,6 +124,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 		required List<String> items, 
 		required ValueChanged<String?> onChanged,
 		required bool isMotivo,
+		required List<String> predeterminados, // <-- Pasamos la lista de predeterminados
 		required Function(String) onDelete,
 		required VoidCallback onAdd,
 	}) {
@@ -139,7 +160,8 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 									),
 								),
 								items: items.map((m) {
-									final isPredeterminado = isMotivo && motivosPredeterminados.contains(m);
+									// Usamos la lista de predeterminados que se pasa por parámetro
+									final isPredeterminado = isMotivo && predeterminados.contains(m);
 									return DropdownMenuItem(
 										value: m,
 										child: Row(
@@ -178,7 +200,8 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 
 	@override
 	Widget build(BuildContext context) {
-		final todosLosMotivos = [...motivosPredeterminados, ..._motivosExtra];
+		final todosLosMotivos = [...motivosFirmaPred, ..._motivosExtra];
+		final todosLosMotivosVb = [...motivosVistoBuenoPred, ..._motivosVbExtra];
 
 		return Container(
 			color: context.surfaceWhite,
@@ -196,18 +219,19 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 										label: 'Motivo de firma',
 										value: _motivoSeleccionado,
 										items: todosLosMotivos,
+										predeterminados: motivosFirmaPred, // <-- Pasamos los predeterminados de firma
 										isMotivo: true,
 										onDelete: (m) async {
 											setState(() {
 												_motivosExtra.remove(m);
 												if (_motivoSeleccionado == m) {
-													_motivoSeleccionado = motivosPredeterminados.first;
+													_motivoSeleccionado = motivosFirmaPred.first;
 													JsonStorage.setString('firma_motivo_activo', _motivoSeleccionado);
 												}
 											});
 											await JsonStorage.setJson('firma_motivos_extra', _motivosExtra);
 										},
-										onAdd: () => _mostrarPopupAgregar(isMotivo: true),
+										onAdd: () => _mostrarPopupAgregar(isMotivo: true, isVb: false),
 										onChanged: (val) {
 											if (val != null) {
 												setState(() => _motivoSeleccionado = val);
@@ -218,11 +242,40 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 
 									const SizedBox(height: 32),
 
-									// 2. CARGOS
+									// 2. MOTIVO DE VISTO BUENO
+									_buildDropdownStyle(
+										label: 'Motivo de visto bueno',
+										value: _motivoVbSeleccionado,
+										items: todosLosMotivosVb,
+										predeterminados: motivosVistoBuenoPred, // <-- Pasamos los predeterminados de VB
+										isMotivo: true,
+										onDelete: (m) async {
+											setState(() {
+												_motivosVbExtra.remove(m);
+												if (_motivoVbSeleccionado == m) {
+													_motivoVbSeleccionado = motivosVistoBuenoPred.first;
+													JsonStorage.setString('vb_motivo_activo', _motivoVbSeleccionado);
+												}
+											});
+											await JsonStorage.setJson('vb_motivos_extra', _motivosVbExtra);
+										},
+										onAdd: () => _mostrarPopupAgregar(isMotivo: true, isVb: true),
+										onChanged: (val) {
+											if (val != null) {
+												setState(() => _motivoVbSeleccionado = val);
+												JsonStorage.setString('vb_motivo_activo', val); 
+											}
+										},
+									),
+
+									const SizedBox(height: 32),
+
+									// 3. CARGOS
 									_buildDropdownStyle(
 										label: 'Cargos',
 										value: _cargoSeleccionado,
 										items: _cargos,
+										predeterminados: const [], // Los cargos no tienen predeterminados
 										isMotivo: false, 
 										onDelete: (c) async {
 											setState(() {
@@ -234,7 +287,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 											});
 											await JsonStorage.setJson('firma_cargos', _cargos);
 										},
-										onAdd: () => _mostrarPopupAgregar(isMotivo: false),
+										onAdd: () => _mostrarPopupAgregar(isMotivo: false, isVb: false),
 										onChanged: (val) {
 											if (val != null) {
 												setState(() => _cargoSeleccionado = val);
@@ -245,7 +298,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 
 									const SizedBox(height: 32),
 
-									// 3. SUFIJO
+									// 4. SUFIJO
 									InputEditable(
 										label: 'Sufijo de la firma',
 										initialValue: JsonStorage.getString('firma_sufijo') ?? 'FG',
@@ -264,7 +317,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 
 									const SizedBox(height: 32),
 
-									// 4. DIRECCIÓN / OFICINA
+									// 5. DIRECCIÓN / OFICINA
 									InputEditable(
 										label: 'Siglas de Dirección / Oficina',
 										initialValue: JsonStorage.getString('firma_direccion_oficina') ?? '',

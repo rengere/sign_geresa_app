@@ -10,11 +10,14 @@ class ArchivosTabla extends StatelessWidget {
 	final Set<String> seleccion;
 	final CampoOrden campoOrden;
 	final bool ascendente;
-	final bool esProyectado; // <-- NUEVO PARÁMETRO
+	final bool esProyectado;
 	final ValueChanged<CampoOrden> onOrdenar;
 	final ValueChanged<ArchivoPdf> onToggle;
 	final VoidCallback onToggleTodos;
 	final void Function(AccionArchivo accion, ArchivoPdf archivo) onAccion;
+	
+	// NUEVO PARÁMETRO PARA INYECTAR WIDGETS (COMO LAS CARPETAS) DEBAJO DEL ENCABEZADO
+	final Widget? headerExtra;
 
 	const ArchivosTabla({
 		super.key,
@@ -22,21 +25,31 @@ class ArchivosTabla extends StatelessWidget {
 		required this.seleccion,
 		required this.campoOrden,
 		required this.ascendente,
-		required this.esProyectado, // <-- AÑADIDO
+		required this.esProyectado,
 		required this.onOrdenar,
 		required this.onToggle,
 		required this.onToggleTodos,
 		required this.onAccion,
+		this.headerExtra, // <-- Inicializado como opcional
 	});
 
 	@override
 	Widget build(BuildContext context) {
 		return Column(
+			mainAxisSize: MainAxisSize.min,
 			children: [
+				// 1. Encabezado con las columnas (Nombre, Fecha, Tamaño)
 				_encabezado(context),
 				const Divider(height: 1),
-				Expanded(
-					child: ListView.separated(
+				
+				// 2. Inyección de elementos extra (Carpetas virtuales)
+				if (headerExtra != null) headerExtra!,
+				
+				// 3. Lista de archivos (si hay)
+				if (archivos.isNotEmpty)
+					ListView.separated(
+						shrinkWrap: true,
+						physics: const NeverScrollableScrollPhysics(),
 						itemCount: archivos.length,
 						separatorBuilder: (context, index) => const Divider(height: 1),
 						itemBuilder: (context, i) {
@@ -44,13 +57,12 @@ class ArchivosTabla extends StatelessWidget {
 							return ArchivoFila(
 								archivo: a,
 								seleccionado: seleccion.contains(a.ruta),
-								esProyectado: esProyectado, // <-- AÑADIDO
+								esProyectado: esProyectado,
 								onToggle: () => onToggle(a),
 								onAccion: (accion) => onAccion(accion, a),
 							);
 						},
 					),
-				),
 			],
 		);
 	}

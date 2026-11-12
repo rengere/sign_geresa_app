@@ -9,6 +9,8 @@ import 'package:firmador_geresa/screens/firma/firmar/editor/editor_firma_modal.d
 import 'package:firmador_geresa/screens/firma/firmar/popup_firma.dart';
 import 'package:firmador_geresa/services/api_service.dart';
 import 'package:flutter/material.dart';
+import 'package:firmador_geresa/assets/tools/files_manag/folder_path_nxc.dart';
+import 'package:firmador_geresa/data/rutas_carpetas_docs.dart';
 
 import 'archivo_menu_acciones.dart';
 import 'archivo_pdf.dart';
@@ -21,13 +23,15 @@ import 'archivos_toolbar.dart';
 import 'visor_pdf_dialog.dart';
 
 class BoxVerArchivos extends StatefulWidget {
-	final String rutaCarpeta;
+	final String rutaCarpetaPrincipal;
 	final String tipo;
+	final List<Map<String, dynamic>>? rutasAlternativas;
 
 	const BoxVerArchivos({
 		super.key, 
-		required this.rutaCarpeta,
+		required this.rutaCarpetaPrincipal,
 		required this.tipo,
+		this.rutasAlternativas,
 	});
 
 	@override
@@ -36,11 +40,15 @@ class BoxVerArchivos extends StatefulWidget {
 
 class _BoxVerArchivosState extends State<BoxVerArchivos> {
 	static const int _porPagina = 20;
+	
+	List<Map<String, dynamic>> _alternativas = [];
+	String? _rutaActual;
+	String? _nombreCarpetaActual;
 
 	final ArchivosService _service = ArchivosService();
 	final TextEditingController _busquedaCtrl = TextEditingController();
 
-	List<ArchivoPdf> _todos = [];
+	List<ArchivoPdf> _archivos = [];
 	bool _cargando = true;
 	String? _error;
 
@@ -56,6 +64,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 	@override
 	void initState() {
 		super.initState();
+		_alternativas = widget.rutasAlternativas ?? [];
 		_cargar();
 	}
 
@@ -66,12 +75,14 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 	}
 
 	Future<void> _cargar() async {
-		if (_todos.isEmpty) setState(() => _cargando = true);
+		setState(() => _cargando = true);
 		try {
-			final lista = await _service.listar(widget.rutaCarpeta);
+			final String rutaALeer = _rutaActual ?? widget.rutaCarpetaPrincipal;
+			final lista = await _service.listar(rutaALeer);
+
 			if (!mounted) return;
 			setState(() {
-				_todos = lista;
+				_archivos = lista;
 				_error = null;
 				_cargando = false;
 				_seleccion.retainAll(lista.map((a) => a.ruta).toSet());
@@ -79,18 +90,44 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 		} catch (e) {
 			if (!mounted) return;
 			setState(() {
-				_todos = [];
+				_archivos = [];
 				_error = _describir(e);
 				_cargando = false;
 			});
 		}
 	}
 
-	List<ArchivoPdf> _filtrar() {
+	void _entrarCarpeta(Map<String, dynamic> rutaData) {
+		setState(() {
+			_rutaActual = rutaData['ruta'];
+			_nombreCarpetaActual = rutaData['nombre'] ?? 'Carpeta Alternativa';
+			_pagina = 0;
+			_consulta = '';
+			_busquedaCtrl.clear();
+			_rango = null;
+			_seleccion.clear();
+		});
+		_cargar();
+	}
+
+	void _volverRaiz() {
+		setState(() {
+			_rutaActual = null;
+			_nombreCarpetaActual = null;
+			_pagina = 0;
+			_consulta = '';
+			_busquedaCtrl.clear();
+			_rango = null;
+			_seleccion.clear();
+		});
+		_cargar();
+	}
+
+	List<ArchivoPdf> _filtrarLista(List<ArchivoPdf> lista) {
 		final q = _consulta.trim().toLowerCase();
 		final rango = _rango;
 
-		final lista = _todos.where((a) {
+		final filtrados = lista.where((a) {
 			if (q.isNotEmpty && !a.nombre.toLowerCase().contains(q)) return false;
 			if (rango != null) {
 				final inicio = DateTime(rango.start.year, rango.start.month, rango.start.day);
@@ -100,8 +137,8 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 			return true;
 		}).toList();
 
-		lista.sort(_comparar);
-		return lista;
+		filtrados.sort(_comparar);
+		return filtrados;
 	}
 
 	int _comparar(ArchivoPdf a, ArchivoPdf b) {
@@ -115,7 +152,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 		return r != 0 ? r : porNombre;
 	}
 
-	List<ArchivoPdf> _seleccionados() => _todos.where((a) => _seleccion.contains(a.ruta)).toList();
+	List<ArchivoPdf> _seleccionados() => _archivos.where((a) => _seleccion.contains(a.ruta)).toList();
 
 	void _aviso(String mensaje, {bool error = false}) {
 		ScaffoldMessenger.of(context)
@@ -150,7 +187,59 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 		}
 	}
 
-	// FUNCIÓN PARA FIRMAR DOCUMENTOS PROYECTADOS
+	// --- NUEVO MODAL DE CARGA ---
+	void _mostrarCarga(BuildContext context, ValueNotifier<String> mensaje) {
+		showDialog(
+			context: context,
+			barrierDismissible: false,
+			barrierColor: Colors.transparent,
+			builder: (ctx) => Center(
+				child: Material(
+					color: Colors.transparent,
+					child: Container(
+						padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+						decoration: BoxDecoration(
+							color: ctx.surfaceWhite,
+							borderRadius: BorderRadius.circular(ctx.radiusLg),
+							boxShadow: [
+								BoxShadow(
+									color: Colors.black.withValues(alpha: 0.1),
+									blurRadius: 10,
+									offset: const Offset(0, 4),
+								),
+							],
+						),
+						child: Row(
+							mainAxisSize: MainAxisSize.min,
+							children: [
+								SizedBox(
+									width: 24,
+									height: 24,
+									child: CircularProgressIndicator(
+										strokeWidth: 2.5,
+										color: ctx.primaryPurple,
+									),
+								),
+								const SizedBox(width: 16),
+								ValueListenableBuilder<String>(
+									valueListenable: mensaje,
+									builder: (_, texto, __) => Text(
+										texto,
+										style: TextStyle(
+											fontSize: 14,
+											fontWeight: FontWeight.w500,
+											color: ctx.textDark,
+										),
+									),
+								),
+							],
+						),
+					),
+				),
+			),
+		);
+	}
+
 	Future<void> _firmarDocumentoProyectado(ArchivoPdf archivo) async {
 		try {
 			final bytes = await File(archivo.ruta).readAsBytes();
@@ -158,6 +247,10 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 			final api = ApiService();
 			TitularCertificado? titular;
 			int intentos = 0;
+
+			// --- MOSTRAR MODAL DE CARGA ---
+			final mensajeCarga = ValueNotifier<String>('Leyendo DNIe...');
+			if (mounted) _mostrarCarga(context, mensajeCarga);
 
 			while (intentos < 5) {
 				try {
@@ -168,6 +261,11 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 					if (intentos >= 5) rethrow;
 					await Future.delayed(const Duration(milliseconds: 200));
 				}
+			}
+
+			// --- CERRAR MODAL DE CARGA ---
+			if (mounted) {
+				Navigator.of(context, rootNavigator: true).pop();
 			}
 
 			if (!mounted) return;
@@ -195,6 +293,10 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 			final pdfProcesado = resultadoEditor['pdfBytes'] as Uint8List;
 			final requiereFirma = resultadoEditor['requiereFirma'] as bool;
 
+			final rutaNxc = obtenerRutaNextcloud();
+			final rutaFirmados = "$rutaNxc$firmados";
+			final rutaProyectados = "$rutaNxc$proyectados";
+
 			if (requiereFirma) {
 				await showDialog(
 					context: context,
@@ -202,7 +304,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 					builder: (_) => PopupFirma(
 						pdfBytes: pdfProcesado,
 						nombreArchivo: archivo.nombre,
-						rutaBackup: widget.rutaCarpeta,
+						rutaDestinoFinal: rutaFirmados, // <-- ENVIAR A FIRMADOS
 						esVistoBueno: false,
 						imagenSello: resultadoEditor['imagenSello'],
 						pagina: resultadoEditor['pagina'],
@@ -214,6 +316,18 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 				);
 			} else {
 				await File(archivo.ruta).writeAsBytes(pdfProcesado);
+				
+				await showDialog(
+					context: context,
+					barrierDismissible: false,
+					builder: (_) => PopupFirma(
+						pdfBytes: pdfProcesado,
+						nombreArchivo: archivo.nombre,
+						rutaDestinoFinal: rutaProyectados, // <-- ENVIAR A PROYECTADOS
+						esVistoBueno: true,
+					),
+				);
+				
 				if (mounted) {
 					_aviso('Documento firmado (Visto Bueno) y actualizado', error: false);
 				}
@@ -222,6 +336,10 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 			if (mounted) await _cargar();
 
 		} catch (e) {
+			// Si hay un error, nos aseguramos de cerrar el modal de carga si está abierto
+			if (mounted) {
+				Navigator.of(context, rootNavigator: true).pop();
+			}
 			if (!mounted) return;
 			_aviso('Error al firmar: $e', error: true);
 		}
@@ -242,8 +360,6 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 				});
 			case AccionArchivo.descargar:
 				return _guardarComo(a);
-			// case AccionArchivo.compartir: // <-- COMENTADO
-			// 	return _compartir([a]); // <-- COMENTADO
 			case AccionArchivo.renombrar:
 				return _renombrar(a);
 			case AccionArchivo.detalles:
@@ -251,8 +367,6 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 				return;
 			case AccionArchivo.eliminar:
 				return _eliminar([a]);
-			// case AccionArchivo.suprimir: // <-- COMENTADO
-			// 	return _suprimir([a]); // <-- COMENTADO
 		}
 	}
 
@@ -285,14 +399,8 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 		});
 	}
 
-	// Future<void> _compartir(List<ArchivoPdf> archivos) async { // <-- COMENTADO
-	// 	final opcion = await mostrarCompartir(context, cantidad: archivos.length);
-	// 	if (opcion == null) return;
-	// 	await _intentar(() => _service.compartir(opcion, archivos));
-	// } // <-- COMENTADO
-
 	Future<void> _renombrar(ArchivoPdf a) async {
-		final existentes = _todos.where((x) => x.ruta != a.ruta).map((x) => x.nombre.toLowerCase()).toSet();
+		final existentes = _archivos.where((x) => x.ruta != a.ruta).map((x) => x.nombre.toLowerCase()).toSet();
 		final nuevo = await mostrarRenombrar(context, nombreActual: a.nombre, existentes: existentes);
 		if (nuevo == null || nuevo == a.nombre) return;
 		await _intentar(() async {
@@ -323,27 +431,6 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 		});
 	}
 
-	// Future<void> _suprimir(List<ArchivoPdf> archivos) async { // <-- COMENTADO
-	// 	final uno = archivos.length == 1;
-	// 	final ok = await mostrarConfirmacion(
-	// 		context,
-	// 		titulo: uno ? '¿Suprimir definitivamente?' : '¿Suprimir ${archivos.length} archivos?',
-	// 		mensaje: uno
-	// 				? '"${archivos.first.nombre}" se borrará de forma permanente del disco. Esta acción no se puede deshacer.'
-	// 				: 'Estos ${archivos.length} archivos se borrarán de forma permanente del disco. Esta acción no se puede deshacer.',
-	// 		textoConfirmar: 'Suprimir',
-	// 		colorConfirmar: context.errorRed,
-	// 	);
-	// 	if (!ok || !mounted) return;
-	// 	await _intentar(() async {
-	// 		for (final a in archivos) {
-	// 			await _service.suprimir(a);
-	// 		}
-	// 		await _cargar();
-	// 		return uno ? 'Archivo suprimido' : '${archivos.length} archivos suprimidos';
-	// 	});
-	// } // <-- COMENTADO
-
 	Future<void> _descargarSeleccion() {
 		return _intentar(() async {
 			final destino = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Elige la carpeta de destino');
@@ -358,7 +445,6 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 
 	Future<void> _elegirRango() async {
 		final actual = _rango;
-
 		final valores = await showCalendarDatePicker2Dialog(
 			context: context,
 			config: CalendarDatePicker2WithActionButtonsConfig(
@@ -387,15 +473,6 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 
 		setState(() {
 			_rango = DateTimeRange(start: inicio, end: fin);
-			_pagina = 0;
-		});
-	}
-
-	void _limpiarFiltros() {
-		_busquedaCtrl.clear();
-		setState(() {
-			_consulta = '';
-			_rango = null;
 			_pagina = 0;
 		});
 	}
@@ -431,37 +508,68 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 
 	@override
 	Widget build(BuildContext context) {
-		final filtrados = _filtrar();
+		final filtrados = _filtrarLista(_archivos);
 		final totalPaginas = max(1, (filtrados.length / _porPagina).ceil());
 		final pagina = _pagina.clamp(0, totalPaginas - 1).toInt();
 		final visibles = filtrados.skip(pagina * _porPagina).take(_porPagina).toList();
 
+		final q = _consulta.trim().toLowerCase();
+		final carpetasFiltradas = _alternativas.where((rutaData) {
+			final nombre = (rutaData['nombre'] as String? ?? '').toLowerCase();
+			return q.isEmpty || nombre.contains(q);
+		}).toList();
+
+		final bool enRaiz = _rutaActual == null && _rango == null;
+		
+		final int totalItems = _archivos.length + (enRaiz ? _alternativas.length : 0);
+		final int encontradosItems = filtrados.length + (enRaiz ? carpetasFiltradas.length : 0);
+
 		return Column(
 			children: [
-				ArchivosToolbar(
-					controller: _busquedaCtrl,
-					onCambioTexto: (t) => setState(() {
-						_consulta = t;
-						_pagina = 0;
-					}),
-					onLimpiarTexto: () {
-						_busquedaCtrl.clear();
-						setState(() {
-							_consulta = '';
-							_pagina = 0;
-						});
-					},
-					rango: _rango,
-					onElegirRango: _elegirRango,
-					onLimpiarRango: () => setState(() {
-						_rango = null;
-						_pagina = 0;
-					}),
-					onRefrescar: _cargar,
-					total: _todos.length,
-					encontrados: filtrados.length,
+				Row(
+					children: [
+						if (_rutaActual != null) ...[
+							IconButton(
+								tooltip: 'Volver a la raíz',
+								onPressed: _volverRaiz,
+								icon: const Icon(Icons.arrow_back_rounded),
+								color: context.primaryPurple,
+							),
+							Text(
+								'$_nombreCarpetaActual / ',
+								style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark, fontSize: 16),
+							),
+							const SizedBox(width: 16),
+						],
+						Expanded(
+							child: ArchivosToolbar(
+								controller: _busquedaCtrl,
+								onCambioTexto: (t) => setState(() {
+									_consulta = t;
+									_pagina = 0;
+								}),
+								onLimpiarTexto: () {
+									_busquedaCtrl.clear();
+									setState(() {
+										_consulta = '';
+										_pagina = 0;
+									});
+								},
+								rango: _rango,
+								onElegirRango: _elegirRango,
+								onLimpiarRango: () => setState(() {
+									_rango = null;
+									_pagina = 0;
+								}),
+								onRefrescar: _cargar,
+								total: totalItems,
+								encontrados: encontradosItems,
+							),
+						),
+					],
 				),
 				SizedBox(height: context.spaceMd),
+
 				AnimatedSize(
 					duration: const Duration(milliseconds: 200),
 					alignment: Alignment.topCenter,
@@ -476,12 +584,11 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 										onSeleccionarTodos: () => setState(() => _seleccion.addAll(filtrados.map((a) => a.ruta))),
 										onCancelar: () => setState(_seleccion.clear),
 										onDescargar: _descargarSeleccion,
-										// onCompartir: () => _compartir(_seleccionados()), // <-- COMENTADO
 										onEliminar: () => _eliminar(_seleccionados()),
-										// onSuprimir: () => _suprimir(_seleccionados()), // <-- COMENTADO
 									),
 								),
 				),
+
 				Expanded(
 					child: Material(
 						color: context.surfaceWhite,
@@ -490,68 +597,62 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 							borderRadius: BorderRadius.circular(context.radiusMd),
 							side: BorderSide(color: context.borderColor),
 						),
-						child: _construirContenido(filtrados, visibles, pagina, totalPaginas),
+						child: _cargando
+							? Center(child: CircularProgressIndicator(color: context.primaryPurple))
+							: (_error != null
+								? _estado(icono: Icons.folder_off_outlined, titulo: 'No se pudo leer', mensaje: _error!, textoBoton: 'Reintentar', onBoton: _cargar)
+								: Column(
+									children: [
+										Expanded(
+											child: SingleChildScrollView(
+												child: ArchivosTabla(
+													archivos: visibles,
+													seleccion: _seleccion,
+													campoOrden: _campo,
+													ascendente: _ascendente,
+													esProyectado: widget.tipo == 'proyectados',
+													onOrdenar: _ordenar,
+													onToggle: _toggle,
+													onToggleTodos: () => _toggleTodosPagina(visibles),
+													onAccion: _ejecutarAccion,
+													
+													headerExtra: enRaiz && carpetasFiltradas.isNotEmpty 
+														? Column(
+															children: carpetasFiltradas.map((rutaData) {
+																return _CarpetaValidada(
+																	rutaData: rutaData,
+																	service: _service,
+																	onEnter: () => _entrarCarpeta(rutaData),
+																);
+															}).toList(),
+														)
+														: null,
+												),
+											),
+										),
+										
+										if (filtrados.isEmpty && (!enRaiz || carpetasFiltradas.isEmpty))
+											_estado(
+												icono: Icons.picture_as_pdf_outlined, 
+												titulo: 'No hay archivos PDF', 
+												mensaje: 'La carpeta está vacía o no coincide con la búsqueda.', 
+												textoBoton: 'Actualizar', 
+												onBoton: _cargar
+											),
+
+										if (filtrados.length > _porPagina)
+											ArchivosPaginacion(
+												pagina: pagina,
+												totalPaginas: totalPaginas,
+												totalArchivos: filtrados.length,
+												porPagina: _porPagina,
+												onCambiar: (p) => setState(() => _pagina = p),
+											),
+									],
+								)
+							),
 					),
 				),
-			],
-		);
-	}
-
-	Widget _construirContenido(List<ArchivoPdf> filtrados, List<ArchivoPdf> visibles, int pagina, int totalPaginas) {
-		if (_cargando) {
-			return Center(child: CircularProgressIndicator(color: context.primaryPurple));
-		}
-		if (_error != null) {
-			return _estado(
-				icono: Icons.folder_off_outlined,
-				titulo: 'No se pudo leer la carpeta',
-				mensaje: '${widget.rutaCarpeta}\n$_error',
-				textoBoton: 'Reintentar',
-				onBoton: _cargar,
-			);
-		}
-		if (_todos.isEmpty) {
-			return _estado(
-				icono: Icons.picture_as_pdf_outlined,
-				titulo: 'No hay archivos PDF',
-				mensaje: 'La carpeta ${widget.rutaCarpeta} no tiene documentos.',
-				textoBoton: 'Actualizar',
-				onBoton: _cargar,
-			);
-		}
-		if (filtrados.isEmpty) {
-			return _estado(
-				icono: Icons.search_off_rounded,
-				titulo: 'Sin resultados',
-				mensaje: 'Ningún archivo coincide con tu búsqueda.',
-				textoBoton: 'Limpiar filtros',
-				onBoton: _limpiarFiltros,
-			);
-		}
-
-		return Column(
-			children: [
-				Expanded(
-					child: ArchivosTabla(
-						archivos: visibles,
-						seleccion: _seleccion,
-						campoOrden: _campo,
-						ascendente: _ascendente,
-						esProyectado: widget.tipo == 'proyectados',
-						onOrdenar: _ordenar,
-						onToggle: _toggle,
-						onToggleTodos: () => _toggleTodosPagina(visibles),
-						onAccion: _ejecutarAccion,
-					),
-				),
-				if (filtrados.length > _porPagina)
-					ArchivosPaginacion(
-						pagina: pagina,
-						totalPaginas: totalPaginas,
-						totalArchivos: filtrados.length,
-						porPagina: _porPagina,
-						onCambiar: (p) => setState(() => _pagina = p),
-					),
 			],
 		);
 	}
@@ -584,6 +685,77 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 					],
 				),
 			),
+		);
+	}
+}
+
+class _CarpetaValidada extends StatefulWidget {
+	final Map<String, dynamic> rutaData;
+	final ArchivosService service;
+	final VoidCallback onEnter;
+
+	const _CarpetaValidada({
+		required this.rutaData,
+		required this.service,
+		required this.onEnter,
+	});
+
+	@override
+	State<_CarpetaValidada> createState() => _CarpetaValidadaState();
+}
+
+class _CarpetaValidadaState extends State<_CarpetaValidada> {
+	late Future<bool> _futureTieneArchivos;
+
+	@override
+	void initState() {
+		super.initState();
+		_futureTieneArchivos = _verificarArchivos();
+	}
+
+	Future<bool> _verificarArchivos() async {
+		try {
+			final ruta = widget.rutaData['ruta'] as String;
+			final archivos = await widget.service.listar(ruta);
+			return archivos.isNotEmpty;
+		} catch (_) {
+			return false;
+		}
+	}
+
+	@override
+	Widget build(BuildContext context) {
+		return FutureBuilder<bool>(
+			future: _futureTieneArchivos,
+			builder: (context, snapshot) {
+				if (snapshot.connectionState != ConnectionState.done) {
+					return const SizedBox.shrink();
+				}
+
+				if (snapshot.data != true) {
+					return const SizedBox.shrink();
+				}
+
+				final nombre = widget.rutaData['nombre'] ?? 'Carpeta';
+				return Material(
+					color: Colors.transparent,
+					child: InkWell(
+						onTap: widget.onEnter,
+						child: Padding(
+							padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+							child: Row(
+								children: [
+									Icon(Icons.folder_rounded, color: context.primaryPurple, size: 28),
+									const SizedBox(width: 12),
+									Text(nombre, style: TextStyle(fontWeight: FontWeight.w600, color: context.textDark, fontSize: 14)),
+									const Spacer(),
+									Icon(Icons.chevron_right_rounded, color: context.textGrey),
+								],
+							),
+						),
+					),
+				);
+			},
 		);
 	}
 }

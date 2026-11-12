@@ -13,8 +13,6 @@ import 'package:firmador_geresa/services/api_service.dart';
 class SignScreen extends StatelessWidget {
 	const SignScreen({super.key});
 
-	// Extensiones de Word que sí podemos convertir (.docx, formato XML
-	// moderno). El formato viejo (.doc, binario) no lo soporta docx4j.
 	bool _esDocx(String nombre) => nombre.toLowerCase().endsWith('.docx');
 	bool _esDocViejo(String nombre) =>
 			nombre.toLowerCase().endsWith('.doc') && !_esDocx(nombre);
@@ -60,7 +58,6 @@ class SignScreen extends StatelessWidget {
 			final api = ApiService();
 			TitularCertificado? titular;
 
-			// --- LÓGICA DE REINTENTO ASÍNCRONO REACTIVO ---
 			int intentos = 0;
 			const maxIntentos = 5;
 
@@ -80,12 +77,9 @@ class SignScreen extends StatelessWidget {
 			if (!context.mounted) return;
 			Navigator.of(context, rootNavigator: true).pop();
 
-			// --- CARGA DE LAS DOS IMÁGENES ---
-			// Cargamos la imagen normal
 			final dataNormal = await DefaultAssetBundle.of(context).load('lib/assets/images/logo_firma.png');
 			final bytesNormal = dataNormal.buffer.asUint8List();
 
-			// Cargamos la imagen del Visto Bueno
 			final dataVB = await DefaultAssetBundle.of(context).load('lib/assets/images/logo_vb.png');
 			final bytesVB = dataVB.buffer.asUint8List();
 
@@ -97,7 +91,7 @@ class SignScreen extends StatelessWidget {
 						pdfBytes: bytesPdf,
 						nombreArchivo: nombreFinal,
 						imagenFirmaBytes: bytesNormal,
-						imagenVistoBuenoBytes: bytesVB, // <-- Se la pasamos al editor
+						imagenVistoBuenoBytes: bytesVB, 
 						nombreFirmante: titular!.nombre,
 						dniFirmante: titular.dni,
 					),
@@ -110,7 +104,6 @@ class SignScreen extends StatelessWidget {
 			final requiereFirma = resultadoEditor['requiereFirma'] as bool;
 			final obtrutaNxc = obtenerRutaNextcloud();
 
-			// Extraemos los datos del sello
 			final imgSello = resultadoEditor['imagenSello'] as Uint8List?;
 			final pagina = resultadoEditor['pagina'] as int?;
 			final x = resultadoEditor['x'] as double?;
@@ -128,7 +121,7 @@ class SignScreen extends StatelessWidget {
 				builder: (_) => PopupFirma(
 					pdfBytes: pdfProcesado,
 					nombreArchivo: nombreFinal,
-					rutaBackup: rutaDestino, 
+					rutaDestinoFinal: rutaDestino, // <-- SOLO RUTA FINAL
 					esVistoBueno: !requiereFirma, 
 					imagenSello: imgSello,
 					pagina: pagina,
@@ -147,7 +140,6 @@ class SignScreen extends StatelessWidget {
 		}
 	}
 
-	// Modal de carga flotante, centrado, sin fondo oscuro.
 	void _mostrarCarga(BuildContext context, ValueNotifier<String> mensaje) {
 		showDialog(
 			context: context,

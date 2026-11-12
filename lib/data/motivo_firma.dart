@@ -1,6 +1,10 @@
-const List<String> motivosPredeterminados = [
+const List<String> motivosFirmaPred = [
 	'Soy el autor del documento',
 	'Señal de conformidad',
-	'Por encargo',
+	'Por encargo'
+];
+
+
+const List<String> motivosVistoBuenoPred = [
 	'Visto bueno',
 ];
