@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:firmador_geresa/data/motivo_firma.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart'; // Necesario para FilteringTextInputFormatter
 import 'package:pdfrx/pdfrx.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 import 'package:image/image.dart' as img;
@@ -49,6 +50,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	final GlobalKey _selloKey = GlobalKey();
 	
 	final TextEditingController _paginaCtrl = TextEditingController(text: '1');
+	final TextEditingController _correlativoCtrl = TextEditingController(text: '');
 
 	// --- ESTADO DEL MODO (FIRMA vs VISTO BUENO) ---
 	bool _esModoVistoBueno = false; 
@@ -56,11 +58,18 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	bool _modoManual = true;
 	bool _procesando = false;
 	bool _foliarDocumento = false;
+	bool _documentoYaFirmado = false; // Para ocultar correlativo si ya está firmado
+
+	// --- VARIABLES DEL CORRELATIVO ---
+	double _fuenteCorrelativo = 12.0;
+	Offset? _posicionCorrelativo;
 
 	static const double _anchoFirma = 240;
 	static const double _altoFirma = 100; 
 	static const double _lado = 54; 
 	static const double _margen = 5; 
+	static const double _anchoCorrelativo = 50; 
+	static const double _altoCorrelativo = 70;  
 
 	Offset? _posicionPorcentual;
 	int _paginaFirma = 1; 
@@ -75,7 +84,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	String _motivoSeleccionado = '';
 	String? _cargoSeleccionado;
 	
-	// Listas separadas
 	List<String> _motivosFirmaDisponibles = [];
 	List<String> _motivosVbDisponibles = [];
 	List<String> _cargosDisponibles = [];
@@ -88,12 +96,30 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		_cargarConfiguracionFirma();
 		
 		_documentoUnido = widget.pdfBytes;
+
+		// Verificamos si el documento ya está firmado
+		_verificarSiFirmado();
 	}
 
 	@override
 	void dispose() {
 		_paginaCtrl.dispose();
+		_correlativoCtrl.dispose();
 		super.dispose();
+	}
+
+	Future<void> _verificarSiFirmado() async {
+		try {
+			final yaFirmado = await ApiService().estaFirmado(
+				pdfBytes: widget.pdfBytes,
+				nombreArchivo: widget.nombreArchivo,
+			);
+			if (mounted) {
+				setState(() => _documentoYaFirmado = yaFirmado);
+			}
+		} catch (e) {
+			debugPrint('Error verificando estado del documento: $e');
+		}
 	}
 
 	void _cargarConfiguracionFirma() {
@@ -135,19 +161,18 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		setState(() {
 			_esModoVistoBueno = irAVistoBueno;
 			if (_esModoVistoBueno) {
-				// Al ir a Visto Bueno, forzamos su motivo
 				_motivoSeleccionado = _motivosVbDisponibles.isNotEmpty ? _motivosVbDisponibles.first : 'Visto bueno';
 				_foliarDocumento = false;
 				_modoManual = false;
 				_posicionAuto = PosicionFirma.abajoIzquierda;
 			} else {
-				// Al volver a Firma, restauramos el motivo de firma
 				_motivoSeleccionado = _motivosFirmaDisponibles.isNotEmpty ? _motivosFirmaDisponibles.first : '';
 				_foliarDocumento = true;
 				_modoManual = true;
 			}
 			_posicionPorcentual = null;
 			_posicionAutoElegida = null;
+			_posicionCorrelativo = null; // Ocultamos el correlativo al cambiar de modo
 		});
 	}
 
@@ -302,6 +327,17 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		);
 	}
 
+	// Límite exclusivo para el correlativo
+	Offset _limitarCorrelativo(Offset p, int pagina) {
+		if (_tamanos.isEmpty) return p;
+		final s = _tamanos[pagina - 1];
+		
+		final maxX = (1 - (_anchoCorrelativo / s.width)).clamp(0.0, 1.0);
+		final maxY = (1 - (_altoCorrelativo / s.height)).clamp(0.0, 1.0);
+		
+		return Offset(p.dx.clamp(0.0, maxX), p.dy.clamp(0.0, maxY));
+	}
+
 	void _irAPagina(int pagina) {
 		if (!_pdfController.isReady) return;
 		_pdfController.goToPage(pageNumber: pagina, anchor: PdfPageAnchor.all);
@@ -317,6 +353,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			if (_posicionPorcentual != null) {
 				_posicionPorcentual = _limitar(_posicionPorcentual!, nueva);
 			}
+			if (_posicionCorrelativo != null) {
+				_posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, nueva);
+			}
 		});
 		_irAPagina(nueva);
 	}
@@ -329,6 +368,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				_paginaFirma = num;
 				if (_posicionPorcentual != null) {
 					_posicionPorcentual = _limitar(_posicionPorcentual!, num);
+				}
+				if (_posicionCorrelativo != null) {
+					_posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, num);
 				}
 			});
 			_irAPagina(num);
@@ -388,7 +430,50 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		if (!_pdfController.isReady || _tamanos.isEmpty) return;
 		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
 		if (box == null) return;
+
 		final centroGlobal = details.offset + const Offset(_anchoFirma / 2, _altoFirma / 2);
+		final local = box.globalToLocal(centroGlobal);
+		final inversa = Matrix4.inverted(_pdfController.value);
+		final doc = MatrixUtils.transformPoint(inversa, local);
+
+		final layouts = _pdfController.layout.pageLayouts;
+		int idx = 0;
+		double mejor = double.infinity;
+		for (int i = 0; i < layouts.length; i++) {
+			final r = layouts[i];
+			final dx = math.max(math.max(r.left - doc.dx, 0.0), doc.dx - r.right);
+			final dy = math.max(math.max(r.top - doc.dy, 0.0), doc.dy - r.bottom);
+			final d = dx * dx + dy * dy;
+			if (d < mejor) { mejor = d; idx = i; }
+		}
+
+		final rect = layouts[idx];
+		final size = _tamanos[idx];
+		
+		// CORRECCIÓN: El visor aplica un padding. Para calcular el porcentaje exacto, 
+		// usamos el ancho y alto reales de la hoja sin restarle los márgenes del visor.
+		final cx = (doc.dx - rect.left) / rect.width;
+		final cy = (doc.dy - rect.top) / rect.height;
+
+		setState(() {
+			_paginaFirma = idx + 1;
+			_paginaCtrl.text = (idx + 1).toString();
+			_posicionPorcentual = _limitar(
+				Offset(
+					cx - (_anchoFirma / size.width) / 2, 
+					cy - (_altoFirma / size.height) / 2
+				), 
+				idx + 1
+			);
+		});
+	}
+
+	void _alSoltarCorrelativo(DragTargetDetails<String> details) {
+		if (!_pdfController.isReady || _tamanos.isEmpty) return;
+		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+		if (box == null) return;
+
+		final centroGlobal = details.offset + const Offset(_anchoCorrelativo / 2, _altoCorrelativo / 2);
 		final local = box.globalToLocal(centroGlobal);
 		final inversa = Matrix4.inverted(_pdfController.value);
 		final doc = MatrixUtils.transformPoint(inversa, local);
@@ -412,7 +497,13 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		setState(() {
 			_paginaFirma = idx + 1;
 			_paginaCtrl.text = (idx + 1).toString();
-			_posicionPorcentual = _limitar(Offset(cx - (_anchoFirma / size.width) / 2, cy - (_altoFirma / size.height) / 2), idx + 1);
+			_posicionCorrelativo = _limitarCorrelativo(
+				Offset(
+					cx - (_anchoCorrelativo / size.width) / 2, 
+					cy - (_altoCorrelativo / size.height) / 2
+				), 
+				idx + 1
+			);
 		});
 	}
 
@@ -443,30 +534,57 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 			Uint8List documentoParaFirmar = _documentoUnido;
 
-			if (_foliarDocumento && !yaFirmado) {
-				final docFoliar = sf.PdfDocument(inputBytes: documentoParaFirmar);
-				final int total = docFoliar.pages.count;
-				final fuenteFoliar = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 8);
-				final negroFoliar = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
+			// 1. FOLIADO Y CORRELATIVO (solo si no está firmado)
+			if (!_documentoYaFirmado) {
+				if ((_foliarDocumento && !yaFirmado) || _posicionCorrelativo != null) {
+					final docFoliar = sf.PdfDocument(inputBytes: documentoParaFirmar);
+					final int total = docFoliar.pages.count;
 
-				for (int i = 0; i < total; i++) {
-					final page = docFoliar.pages[i];
-					final numFolio = total - i;
-					final xFolio = page.size.width - 30;
-					final yFolio = page.size.height - 20;
-					
-					page.graphics.drawString(
-						'$numFolio', 
-						fuenteFoliar, 
-						brush: negroFoliar, 
-						bounds: Rect.fromLTWH(xFolio, yFolio, 0, 0)
-					);
+					// Foliado
+					if (_foliarDocumento && !yaFirmado) {
+						final fuenteFoliar = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 8);
+						final negroFoliar = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
+
+						for (int i = 0; i < total; i++) {
+							final page = docFoliar.pages[i];
+							final numFolio = total - i;
+							final xFolio = page.size.width - 30;
+							final yFolio = page.size.height - 20;
+							
+							page.graphics.drawString(
+								'$numFolio', 
+								fuenteFoliar, 
+								brush: negroFoliar, 
+								bounds: Rect.fromLTWH(xFolio, yFolio, 0, 0)
+							);
+						}
+					}
+
+					// Correlativo
+					if (_posicionCorrelativo != null && _correlativoCtrl.text.isNotEmpty) {
+						final page = docFoliar.pages[_paginaFirma - 1];
+						final pos = _posicionCorrelativo!;
+						final xPuntos = pos.dx * page.size.width;
+						final yPuntos = pos.dy * page.size.height;
+						
+						final fuenteCorr = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, _fuenteCorrelativo, style: sf.PdfFontStyle.bold);
+						final negroCorr = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
+
+						page.graphics.drawString(
+							_correlativoCtrl.text, 
+							fuenteCorr, 
+							brush: negroCorr, 
+							bounds: Rect.fromLTWH(xPuntos, yPuntos, _anchoCorrelativo, _altoCorrelativo)
+						);
+					}
+
+					final foliadoBytes = await docFoliar.save();
+					docFoliar.dispose();
+					documentoParaFirmar = Uint8List.fromList(foliadoBytes);
 				}
-				final foliadoBytes = await docFoliar.save();
-				docFoliar.dispose();
-				documentoParaFirmar = Uint8List.fromList(foliadoBytes);
 			}
 
+			// 2. ESTAMPADO DE FIRMA
 			if (_esModoVistoBueno) {
 				final decoded = img.decodeImage(pngBytes);
 				if (decoded == null) throw Exception('No se pudo decodificar la imagen');
@@ -499,9 +617,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				final pageSize = _tamanos[_paginaFirma - 1];
 				
 				double xPuntos = pos.dx * pageSize.width;
-				
-				// La API de Java en este proyecto interpreta la Y desde arriba (igual que Flutter),
-				// por lo que NO se invierte la coordenada.
 				double yPuntos = pos.dy * pageSize.height;
 
 				xPuntos = xPuntos.clamp(0.0, pageSize.width - _anchoFirma);
@@ -635,6 +750,49 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		);
 	}
 
+	// Visual del correlativo (recuadro con puntitos y número)
+	Widget _correlativoVisual() {
+		return Container(
+			width: _anchoCorrelativo,
+			height: _altoCorrelativo,
+			decoration: BoxDecoration(
+				color: Colors.white.withValues(alpha: 0.9),
+				border: Border.all(color: context.primaryPurple, width: 1.5),
+				borderRadius: BorderRadius.circular(4),
+			),
+			child: Column(
+				mainAxisAlignment: MainAxisAlignment.center,
+				children: [
+					Container(
+						padding: const EdgeInsets.only(top: 4),
+						child: Column(
+							children: [
+								Row(
+									mainAxisAlignment: MainAxisAlignment.center,
+									children: [
+										Icon(Icons.drag_indicator, size: 14, color: context.textGrey),
+									],
+								),
+							],
+						),
+					),
+					Expanded(
+						child: Center(
+							child: Text(
+								_correlativoCtrl.text,
+								style: TextStyle(
+									fontSize: _fuenteCorrelativo,
+									fontWeight: FontWeight.bold,
+									color: Colors.black,
+								),
+							),
+						),
+					),
+				],
+			),
+		);
+	}
+
 	Widget _botonZoom(IconData icono, String tooltip, VoidCallback onTap) {
 		return Material(
 			color: context.surfaceWhite,
@@ -744,35 +902,69 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 															_totalPaginas = document.pages.length;
 															_tamanos = document.pages.map((p) => Size(p.width, p.height)).toList();
 															if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _paginaFirma);
+															if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, _paginaFirma);
 														});
 													},
 													pageOverlaysBuilder: (context, pageRect, page) {
-														if (_posicionPorcentual == null || page.pageNumber != _paginaFirma) return const [];
+														final List<Widget> overlays = [];
 														
-														final escala = pageRect.width / page.width;
-														return [
-															Positioned(
-																left: _posicionPorcentual!.dx * pageRect.width,
-																top: _posicionPorcentual!.dy * pageRect.height,
-																width: _anchoFirma * escala,
-																height: _altoFirma * escala,
-																child: GestureDetector(
-																	onPanUpdate: (details) {
-																		setState(() {
-																			final nuevo = Offset(_posicionPorcentual!.dx + details.delta.dx / pageRect.width, _posicionPorcentual!.dy + details.delta.dy / pageRect.height);
-																			_posicionPorcentual = _limitar(nuevo, _paginaFirma);
-																		});
-																	},
-																	child: MouseRegion(
-																		cursor: SystemMouseCursors.grab,
-																		child: FittedBox(
-																			fit: BoxFit.fill,
-																			child: _firmaVisual(),
+														// Overlay de la Firma
+														if (_posicionPorcentual != null && page.pageNumber == _paginaFirma) {
+															final escala = pageRect.width / page.width;
+															overlays.add(
+																Positioned(
+																	left: _posicionPorcentual!.dx * pageRect.width,
+																	top: _posicionPorcentual!.dy * pageRect.height,
+																	width: _anchoFirma * escala,
+																	height: _altoFirma * escala,
+																	child: GestureDetector(
+																		onPanUpdate: (details) {
+																			setState(() {
+																				final nuevo = Offset(_posicionPorcentual!.dx + details.delta.dx / pageRect.width, _posicionPorcentual!.dy + details.delta.dy / pageRect.height);
+																				_posicionPorcentual = _limitar(nuevo, _paginaFirma);
+																			});
+																		},
+																		child: MouseRegion(
+																			cursor: SystemMouseCursors.grab,
+																			child: FittedBox(
+																				fit: BoxFit.fill,
+																				child: _firmaVisual(),
+																			),
 																		),
 																	),
 																),
-															),
-														];
+															);
+														}
+
+														// Overlay del Correlativo
+														if (_correlativoCtrl.text.isNotEmpty && _posicionCorrelativo != null && page.pageNumber == _paginaFirma) {
+															final escala = pageRect.width / page.width;
+															overlays.add(
+																Positioned(
+																	left: _posicionCorrelativo!.dx * pageRect.width,
+																	top: _posicionCorrelativo!.dy * pageRect.height,
+																	width: _anchoCorrelativo * escala,
+																	height: _altoCorrelativo * escala,
+																	child: GestureDetector(
+																		onPanUpdate: (details) {
+																			setState(() {
+																				final nuevo = Offset(_posicionCorrelativo!.dx + details.delta.dx / pageRect.width, _posicionCorrelativo!.dy + details.delta.dy / pageRect.height);
+																				_posicionCorrelativo = _limitarCorrelativo(nuevo, _paginaFirma);
+																			});
+																		},
+																		child: MouseRegion(
+																			cursor: SystemMouseCursors.grab,
+																			child: FittedBox(
+																				fit: BoxFit.fill,
+																				child: _correlativoVisual(),
+																			),
+																		),
+																	),
+																),
+															);
+														}
+														
+														return overlays;
 													},
 												),
 											),
@@ -799,6 +991,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																				_paginaFirma = 1;
 																				_paginaCtrl.text = '1';
 																				if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, 1);
+																				if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, 1);
 																			});
 																			_irAPagina(1);
 																		} : null,
@@ -865,6 +1058,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																				_paginaFirma = _totalPaginas;
 																				_paginaCtrl.text = _totalPaginas.toString();
 																				if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _totalPaginas);
+																				if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, _totalPaginas);
 																			});
 																			_irAPagina(_totalPaginas);
 																		} : null,
@@ -881,6 +1075,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												),
 											),
 
+										// --- TARGET DE LA FIRMA ---
 										Positioned.fill(
 											child: DragTarget<Uint8List>(
 												onAcceptWithDetails: _alSoltar,
@@ -889,6 +1084,17 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												},
 											),
 										),
+
+										// --- TARGET DEL CORRELATIVO ---
+										Positioned.fill(
+											child: DragTarget<String>(
+												onAcceptWithDetails: _alSoltarCorrelativo,
+												builder: (context, candidateData, rejectedData) {
+													return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? Colors.black.withValues(alpha: 0.05) : Colors.transparent));
+												},
+											),
+										),
+
 										Positioned(
 											top: 12,
 											right: 12,
@@ -947,7 +1153,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												
 												const SizedBox(height: 24),
 												
-												// --- AQUÍ ESTÁ EL TOGGLE CON FLECHAS ---
+												// TOGGLE
 												Container(
 													padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
 													decoration: BoxDecoration(
@@ -1030,7 +1236,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													const SizedBox(height: 24),
 												],
 												
-												// EL DRAGGABLE
+												// EL DRAGGABLE DE LA FIRMA
 												Center(
 													child: Draggable<Uint8List>(
 														data: widget.imagenFirmaBytes,
@@ -1052,7 +1258,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												),
 
 												const SizedBox(height: 16),
-												
+
 												// SWITCH PARA FOLIAR
 												if (!_esModoVistoBueno) ...[
 													Container(
@@ -1081,6 +1287,98 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 														),
 													),
 												],
+
+												// --- BLOQUE DEL CORRELATIVO ---
+												if (!_esModoVistoBueno && !_documentoYaFirmado) ...[
+													const SizedBox(height: 16),
+													Container(
+														padding: const EdgeInsets.all(12),
+														decoration: BoxDecoration(
+															color: context.surfaceGrey,
+															borderRadius: BorderRadius.circular(context.radiusMd),
+															border: Border.all(color: context.borderColor),
+														),
+														child: Column(
+															crossAxisAlignment: CrossAxisAlignment.start,
+															children: [
+																Row(
+																	mainAxisAlignment: MainAxisAlignment.spaceBetween,
+																	children: [
+																		Text('Correlativo', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textDark)),
+																		Row(
+																			children: [
+																				if (_correlativoCtrl.text.isNotEmpty)
+																					IconButton(
+																						onPressed: () {
+																							setState(() {
+																								_correlativoCtrl.clear();
+																								_posicionCorrelativo = null;
+																							});
+																						},
+																						icon: const Icon(Icons.close_rounded, size: 18, color: Colors.red),
+																						padding: EdgeInsets.zero,
+																						constraints: const BoxConstraints(),
+																						tooltip: 'Quitar correlativo',
+																					),
+																				const SizedBox(width: 8),
+																				IconButton(
+																					onPressed: () => setState(() => _fuenteCorrelativo = (_fuenteCorrelativo - 2).clamp(8, 30)),
+																					icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
+																					padding: EdgeInsets.zero,
+																					constraints: const BoxConstraints(),
+																				),
+																				IconButton(
+																					onPressed: () => setState(() => _fuenteCorrelativo = (_fuenteCorrelativo + 2).clamp(8, 30)),
+																					icon: const Icon(Icons.keyboard_arrow_up_rounded, size: 20),
+																					padding: EdgeInsets.zero,
+																					constraints: const BoxConstraints(),
+																				),
+																			],
+																		)
+																	],
+																),
+																const SizedBox(height: 8),
+																
+																// EL DRAGGABLE DEL CORRELATIVO
+																if (_correlativoCtrl.text.isNotEmpty)
+																	Center(
+																		child: Draggable<String>(
+																			data: _correlativoCtrl.text,
+																			dragAnchorStrategy: (draggable, context, position) => const Offset(_anchoCorrelativo / 2, _altoCorrelativo / 2),
+																			feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: _correlativoVisual())),
+																			childWhenDragging: Opacity(opacity: 0.3, child: Icon(Icons.drag_indicator, color: context.textGrey)),
+																			child: _correlativoVisual(),
+																		),
+																	),
+																const SizedBox(height: 8),
+																
+																TextField(
+																	controller: _correlativoCtrl,
+																	maxLength: 5,
+																	inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+																	decoration: InputDecoration(
+																		hintText: 'Ej. 15',
+																		filled: true,
+																		fillColor: context.surfaceWhite,
+																		isDense: true,
+																		counterText: '',
+																		contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+																		border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+																	),
+																	style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+																	onChanged: (val) {
+																		setState(() {
+																			if (val.trim().isEmpty) {
+																				_posicionCorrelativo = null;
+																			}
+																		});
+																	},
+																),
+															],
+														),
+													),
+												],
+
 											],
 										),
 									),
