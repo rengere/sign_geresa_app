@@ -540,7 +540,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 					final docFoliar = sf.PdfDocument(inputBytes: documentoParaFirmar);
 					final int total = docFoliar.pages.count;
 
-					// Foliado
+					// Foliado (Números de página)
 					if (_foliarDocumento && !yaFirmado) {
 						final fuenteFoliar = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 8);
 						final negroFoliar = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
@@ -560,12 +560,19 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 						}
 					}
 
-					// Correlativo
+					// Correlativo (El número que pusiste en el recuadro morado)
 					if (_posicionCorrelativo != null && _correlativoCtrl.text.isNotEmpty) {
 						final page = docFoliar.pages[_paginaFirma - 1];
 						final pos = _posicionCorrelativo!;
-						final xPuntos = pos.dx * page.size.width;
-						final yPuntos = pos.dy * page.size.height;
+						
+						// Coordenadas base (esquina superior izquierda)
+						final xBase = pos.dx * page.size.width;
+						final yBase = pos.dy * page.size.height;
+						
+						// Ajuste para centrar el texto en el recuadro
+						// Subimos los px a +18 en X y +40 en Y para bajarlo y centrarlo
+						final xAjustada = xBase + 18; 
+						final yAjustada = yBase + 40; 
 						
 						final fuenteCorr = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, _fuenteCorrelativo, style: sf.PdfFontStyle.bold);
 						final negroCorr = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
@@ -574,7 +581,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 							_correlativoCtrl.text, 
 							fuenteCorr, 
 							brush: negroCorr, 
-							bounds: Rect.fromLTWH(xPuntos, yPuntos, _anchoCorrelativo, _altoCorrelativo)
+							bounds: Rect.fromLTWH(xAjustada, yAjustada, _anchoCorrelativo, _altoCorrelativo)
 						);
 					}
 
@@ -705,8 +712,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												overflow: TextOverflow.ellipsis,
 											),
 											const SizedBox(height: 2),
+											// CAMBIO: Usamos el motivo seleccionado dinámicamente
 											Text(
-												'Visto\nbueno', 
+												_motivoSeleccionado, 
 												style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1), 
 												textAlign: TextAlign.center,
 												maxLines: 2,
@@ -722,6 +730,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			);
 		}
 
+		// --- DISEÑO NORMAL (Firma Digital) ---
 		return SizedBox(
 			width: _anchoFirma,
 			height: _altoFirma,
@@ -750,14 +759,15 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		);
 	}
 
+
 	// Visual del correlativo (recuadro con puntitos y número)
 	Widget _correlativoVisual() {
 		return Container(
 			width: _anchoCorrelativo,
 			height: _altoCorrelativo,
 			decoration: BoxDecoration(
-				color: Colors.white.withValues(alpha: 0.9),
-				border: Border.all(color: context.primaryPurple, width: 1.5),
+				color: Colors.white.withValues(alpha: 0.3), // Fondo blanco al 30% de opacidad
+				border: Border.all(color: context.primaryPurple.withValues(alpha: 0.3), width: 1.5), // Borde morado al 30%
 				borderRadius: BorderRadius.circular(4),
 			),
 			child: Column(
@@ -770,7 +780,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 								Row(
 									mainAxisAlignment: MainAxisAlignment.center,
 									children: [
-										Icon(Icons.drag_indicator, size: 14, color: context.textGrey),
+										Icon(Icons.drag_indicator, size: 14, color: context.textGrey.withValues(alpha: 0.5)),
 									],
 								),
 							],
@@ -783,7 +793,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 								style: TextStyle(
 									fontSize: _fuenteCorrelativo,
 									fontWeight: FontWeight.bold,
-									color: Colors.black,
+									color: Colors.black.withValues(alpha: 0.7), // Número un poco transparente para que no estorbe
 								),
 							),
 						),
@@ -792,6 +802,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			),
 		);
 	}
+
+
 
 	Widget _botonZoom(IconData icono, String tooltip, VoidCallback onTap) {
 		return Material(
