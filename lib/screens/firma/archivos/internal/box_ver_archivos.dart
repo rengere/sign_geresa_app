@@ -12,6 +12,9 @@ import 'package:flutter/material.dart';
 import 'package:firmador_geresa/assets/tools/files_manag/folder_path_nxc.dart';
 import 'package:firmador_geresa/data/rutas_carpetas_docs.dart';
 
+// IMPORTAMOS EL NUEVO VISOR
+import 'visor_pdf_notas_dialog.dart'; 
+
 import 'archivo_menu_acciones.dart';
 import 'archivo_pdf.dart';
 import 'archivos_barra_seleccion.dart';
@@ -20,7 +23,6 @@ import 'archivos_paginacion.dart';
 import 'archivos_service.dart';
 import 'archivos_tabla.dart';
 import 'archivos_toolbar.dart';
-import 'visor_pdf_dialog.dart';
 
 class BoxVerArchivos extends StatefulWidget {
 	final String rutaCarpetaPrincipal;
@@ -373,7 +375,10 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 	Future<void> _verEnApp(ArchivoPdf a) async {
 		await showDialog(
 			context: context,
-			builder: (_) => VisorPdfDialog(archivo: a, onAbrirExterno: () => _abrirExterno(a)),
+			builder: (_) => VisorPdfNotasDialog( // <-- AQUÍ EL CAMBIO AL NUEVO VISOR
+				archivo: a, 
+				onAbrirExterno: () => _abrirExterno(a),
+			),
 		);
 	}
 
