@@ -98,7 +98,7 @@ class ArchivoFila extends StatelessWidget {
 									alignment: Alignment.centerLeft, // <-- ALINEADO A LA IZQUIERDA
 									child: archivo.tieneNotas
 										? Tooltip(
-												message: 'Tiene notas',
+												message: 'Observado',
 												child: Container(
 													padding: const EdgeInsets.all(4),
 													decoration: BoxDecoration(
