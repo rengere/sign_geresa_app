@@ -375,11 +375,13 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 	Future<void> _verEnApp(ArchivoPdf a) async {
 		await showDialog(
 			context: context,
-			builder: (_) => VisorPdfNotasDialog( // <-- AQUÍ EL CAMBIO AL NUEVO VISOR
+			builder: (_) => VisorPdfNotasDialog( 
 				archivo: a, 
 				onAbrirExterno: () => _abrirExterno(a),
 			),
 		);
+		// AL VOLVER DEL VISOR, RECARGAMOS LA TABLA PARA VER SI HAY NUEVAS NOTAS
+		if (mounted) await _cargar();
 	}
 
 	Future<void> _abrirExterno(ArchivoPdf a) {

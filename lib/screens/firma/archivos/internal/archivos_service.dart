@@ -1,4 +1,7 @@
 import 'dart:io';
+import 'dart:convert'; // <-- NUEVO
+import 'package:path/path.dart' as p; // <-- NUEVO
+import 'package:flutter/foundation.dart'; // <-- NUEVO
 
 import 'archivo_pdf.dart';
 import 'package:printing/printing.dart';
@@ -10,14 +13,22 @@ class ArchivosService {
 
 	String get _sep => Platform.pathSeparator;
 
-	// ==========================================
-	// LECTURA
-	// ==========================================
-	/// Lista los PDF de la carpeta, ignorando los que empiezan con [DELETE].
 	Future<List<ArchivoPdf>> listar(String rutaCarpeta) async {
 		final dir = Directory(rutaCarpeta);
 		if (!await dir.exists()) {
 			throw FileSystemException('La carpeta no existe', rutaCarpeta);
+		}
+
+		// Leer notes.json si existe
+		Map<String, dynamic> notasData = {};
+		final archivoNotas = File(p.join(rutaCarpeta, 'notes.json'));
+		if (await archivoNotas.exists()) {
+			try {
+				final contenido = await archivoNotas.readAsString();
+				notasData = jsonDecode(contenido) as Map<String, dynamic>;
+			} catch (e) {
+				debugPrint('Error leyendo notes.json: $e');
+			}
 		}
 
 		final resultado = <ArchivoPdf>[];
@@ -28,19 +39,27 @@ class ArchivosService {
 			if (nombre.startsWith(prefijoEliminado)) continue;
 
 			final stat = await entidad.stat();
+
+			bool tieneNotas = false;
+			if (notasData.containsKey(nombre)) {
+				final listaNotas = notasData[nombre] as List?;
+				if (listaNotas != null && listaNotas.isNotEmpty) {
+					tieneNotas = true;
+				}
+			}
+
 			resultado.add(ArchivoPdf(
 				ruta: entidad.path,
 				nombre: nombre,
 				fecha: stat.modified,
 				tamano: stat.size,
+				tieneNotas: tieneNotas, // <-- ASIGNAMOS
 			));
 		}
 		return resultado;
 	}
 
-	// ==========================================
-	// MODIFICACIÓN
-	// ==========================================
+	// ... (El resto del archivo se mantiene exactamente igual)
 	Future<void> renombrar(ArchivoPdf archivo, String nuevoNombre) async {
 		final destino = '${archivo.carpeta}$_sep$nuevoNombre';
 		if (await File(destino).exists()) {
@@ -49,7 +68,6 @@ class ArchivosService {
 		await File(archivo.ruta).rename(destino);
 	}
 
-	/// "Eliminar": solo antepone [DELETE] al nombre.
 	Future<void> marcarEliminado(ArchivoPdf archivo) async {
 		var nuevo = '$prefijoEliminado${archivo.nombre}';
 		if (await File('${archivo.carpeta}$_sep$nuevo').exists()) {
@@ -58,20 +76,15 @@ class ArchivosService {
 		await File(archivo.ruta).rename('${archivo.carpeta}$_sep$nuevo');
 	}
 
-	/// "Suprimir": borrado definitivo.
 	Future<void> suprimir(ArchivoPdf archivo) async {
 		await File(archivo.ruta).delete();
 	}
 
-	// ==========================================
-	// COPIAS
-	// ==========================================
 	Future<void> guardarComo(ArchivoPdf archivo, String rutaDestino) async {
 		if (rutaDestino == archivo.ruta) return;
 		await File(archivo.ruta).copy(rutaDestino);
 	}
 
-	/// Copia el archivo a una carpeta sin pisar uno existente: nombre (1).pdf
 	Future<String> copiarACarpeta(ArchivoPdf archivo, String carpetaDestino) async {
 		var destino = '$carpetaDestino$_sep${archivo.nombre}';
 		var i = 1;
@@ -83,9 +96,6 @@ class ArchivosService {
 		return destino;
 	}
 
-	// ==========================================
-	// SISTEMA OPERATIVO
-	// ==========================================
 	Future<void> abrirPredeterminado(String ruta) async {
 		if (Platform.isWindows) {
 			await _run('rundll32', ['url.dll,FileProtocolHandler', ruta]);
@@ -98,21 +108,13 @@ class ArchivosService {
 
 	Future<void> mostrarEnCarpeta(String ruta) async {
 		if (Platform.isWindows) {
-			// Ruta absoluta y con barras de Windows (\), si no el Explorador
-			// ignora la selección y abre una carpeta por defecto.
 			final absoluta = File(ruta).absolute.path.replaceAll('/', r'\');
-
 			if (!await File(absoluta).exists()) {
 				throw FileSystemException('El archivo ya no existe', absoluta);
 			}
-
-			// PowerShell envía /select,"ruta" como un solo argumento, así que
-			// funciona con espacios, tildes y corchetes en el nombre.
 			final segura = absoluta.replaceAll("'", "''");
 			await Process.run('powershell', [
-				'-NoProfile',
-				'-NonInteractive',
-				'-Command',
+				'-NoProfile', '-NonInteractive', '-Command',
 				"Start-Process explorer.exe -ArgumentList ('/select,\"' + '$segura' + '\"')",
 			]);
 		} else if (Platform.isMacOS) {
@@ -122,22 +124,18 @@ class ArchivosService {
 		}
 	}
 
-	/// Devuelve el mensaje a mostrar al usuario.
 	Future<String> compartir(OpcionCompartir opcion, List<ArchivoPdf> archivos) async {
 		final rutas = archivos.map((a) => a.ruta).toList();
-
 		switch (opcion) {
 			case OpcionCompartir.carpeta:
 				await mostrarEnCarpeta(rutas.first);
 				return 'Carpeta abierta: arrastra el archivo donde lo necesites';
-
 			case OpcionCompartir.whatsapp:
 				final copiado = await _copiarAlPortapapeles(rutas);
 				await _abrirUrl('whatsapp://');
 				if (copiado) return 'Archivo(s) copiado(s). Pégalo(s) con Ctrl+V en el chat de WhatsApp';
 				await mostrarEnCarpeta(rutas.first);
 				return 'Arrastra el archivo al chat de WhatsApp';
-
 			case OpcionCompartir.correo:
 				final copiado = await _copiarAlPortapapeles(rutas);
 				await _abrirUrl('mailto:?subject=Documentos');
@@ -147,16 +145,12 @@ class ArchivosService {
 		}
 	}
 
-	/// Copia ARCHIVOS (no texto) al portapapeles. Solo Windows.
 	Future<bool> _copiarAlPortapapeles(List<String> rutas) async {
 		if (!Platform.isWindows) return false;
 		try {
 			final lista = rutas.map((r) => "'${r.replaceAll("'", "''")}'").join(',');
 			final r = await Process.run('powershell', [
-				'-NoProfile',
-				'-NonInteractive',
-				'-Command',
-				'Set-Clipboard -LiteralPath @($lista)',
+				'-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -LiteralPath @($lista)',
 			]);
 			return r.exitCode == 0;
 		} catch (_) {
@@ -173,9 +167,7 @@ class ArchivosService {
 			} else {
 				await Process.run('xdg-open', [url]);
 			}
-		} catch (_) {
-			// Si la app no está instalada, se ignora
-		}
+		} catch (_) {}
 	}
 
 	Future<void> _run(String exe, List<String> args) async {
@@ -185,12 +177,8 @@ class ArchivosService {
 		}
 	}
 
-
 	Future<void> imprimir(String ruta) async {
 		final bytes = await File(ruta).readAsBytes();
-		await Printing.layoutPdf(
-			onLayout: (format) async => bytes,
-		);
+		await Printing.layoutPdf(onLayout: (format) async => bytes);
 	}
-
 }

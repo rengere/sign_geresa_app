@@ -535,12 +535,12 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 																					overflow: TextOverflow.ellipsis,
 																					style: const TextStyle(fontSize: 12),
 																				),
-																				trailing: IconButton(
-																					icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-																					onPressed: () => _ocultarNota(nota),
-																					constraints: const BoxConstraints(),
-																					padding: EdgeInsets.zero,
-																				),
+																				// trailing: IconButton(
+																				// 	icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+																				// 	onPressed: () => _ocultarNota(nota),
+																				// 	constraints: const BoxConstraints(),
+																				// 	padding: EdgeInsets.zero,
+																				// ),
 																			),
 																		);
 																	},

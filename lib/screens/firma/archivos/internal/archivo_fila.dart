@@ -7,6 +7,7 @@ import 'archivo_pdf.dart';
 /// Anchos de columna compartidos entre encabezado y filas.
 class ColumnasTabla {
 	static const double check = 56;
+	static const double notas = 64; // <-- NUEVA COLUMNA
 	static const double fecha = 190;
 	static const double tamano = 110;
 	static const double menu = 64;
@@ -61,6 +62,7 @@ class ArchivoFila extends StatelessWidget {
 									child: Checkbox(value: seleccionado, onChanged: (_) => onToggle()),
 								),
 							),
+							// COLUMNA NOMBRE
 							Expanded(
 								child: Row(
 									children: [
@@ -89,14 +91,37 @@ class ArchivoFila extends StatelessWidget {
 									],
 								),
 							),
+							// COLUMNA NOTAS (Alineada a la izquierda)
+							SizedBox(
+								width: ColumnasTabla.notas,
+								child: Align(
+									alignment: Alignment.centerLeft, // <-- ALINEADO A LA IZQUIERDA
+									child: archivo.tieneNotas
+										? Tooltip(
+												message: 'Tiene notas',
+												child: Container(
+													padding: const EdgeInsets.all(4),
+													decoration: BoxDecoration(
+														color: context.primaryPurple,
+														shape: BoxShape.circle,
+													),
+													child: const Icon(Icons.question_mark, size: 14, color: Colors.white),
+												),
+											)
+										: const SizedBox.shrink(),
+								),
+							),
+							// COLUMNA FECHA
 							SizedBox(
 								width: ColumnasTabla.fecha,
 								child: Text(archivo.fechaTexto, style: textos.bodyMedium),
 							),
+							// COLUMNA TAMAÑO
 							SizedBox(
 								width: ColumnasTabla.tamano,
 								child: Text(archivo.tamanoTexto, style: textos.bodyMedium),
 							),
+							// COLUMNA MENÚ
 							SizedBox(
 								width: ColumnasTabla.menu,
 								child: PopupMenuButton<AccionArchivo>(

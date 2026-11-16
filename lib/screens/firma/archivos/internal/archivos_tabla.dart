@@ -16,7 +16,6 @@ class ArchivosTabla extends StatelessWidget {
 	final VoidCallback onToggleTodos;
 	final void Function(AccionArchivo accion, ArchivoPdf archivo) onAccion;
 	
-	// NUEVO PARÁMETRO PARA INYECTAR WIDGETS (COMO LAS CARPETAS) DEBAJO DEL ENCABEZADO
 	final Widget? headerExtra;
 
 	const ArchivosTabla({
@@ -30,7 +29,7 @@ class ArchivosTabla extends StatelessWidget {
 		required this.onToggle,
 		required this.onToggleTodos,
 		required this.onAccion,
-		this.headerExtra, // <-- Inicializado como opcional
+		this.headerExtra,
 	});
 
 	@override
@@ -38,14 +37,11 @@ class ArchivosTabla extends StatelessWidget {
 		return Column(
 			mainAxisSize: MainAxisSize.min,
 			children: [
-				// 1. Encabezado con las columnas (Nombre, Fecha, Tamaño)
 				_encabezado(context),
 				const Divider(height: 1),
 				
-				// 2. Inyección de elementos extra (Carpetas virtuales)
 				if (headerExtra != null) headerExtra!,
 				
-				// 3. Lista de archivos (si hay)
 				if (archivos.isNotEmpty)
 					ListView.separated(
 						shrinkWrap: true,
@@ -94,6 +90,14 @@ class ArchivosTabla extends StatelessWidget {
 							activo: campoOrden == CampoOrden.nombre,
 							ascendente: ascendente,
 							onTap: () => onOrdenar(CampoOrden.nombre),
+						),
+					),
+					// NUEVA CABECERA PARA NOTAS
+					SizedBox(
+						width: ColumnasTabla.notas,
+						child: Align(
+							alignment: Alignment.centerLeft, // <-- ALINEADO A LA IZQUIERDA
+							child: Text('Notas', style: Theme.of(context).textTheme.titleSmall),
 						),
 					),
 					SizedBox(
