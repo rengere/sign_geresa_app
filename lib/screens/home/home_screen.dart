@@ -19,7 +19,7 @@ class HomeScreen extends ConsumerWidget {
 			ActionCard(
 				iconBackgroundColor: const Color(0xFFDCFCE7),
 				icono: const Icon(Icons.verified_user_rounded, size: 40, color: Color(0xFF10B981)),
-				titulo: 'Firma ditital GERESA',
+				titulo: 'Firma digital GERESA',
 				descripcion: 'Revisa la validez de las firmas digitales en tus documentos.',
 				onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const FirmaScreen())),
 			),
