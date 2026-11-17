@@ -124,7 +124,7 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 		required List<String> items, 
 		required ValueChanged<String?> onChanged,
 		required bool isMotivo,
-		required List<String> predeterminados, // <-- Pasamos la lista de predeterminados
+		required List<String> predeterminados,
 		required Function(String) onDelete,
 		required VoidCallback onAdd,
 	}) {
@@ -160,7 +160,6 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 									),
 								),
 								items: items.map((m) {
-									// Usamos la lista de predeterminados que se pasa por parámetro
 									final isPredeterminado = isMotivo && predeterminados.contains(m);
 									return DropdownMenuItem(
 										value: m,
@@ -204,139 +203,137 @@ class _BoxFirmaGeresaState extends State<BoxFirmaGeresa> {
 		final todosLosMotivosVb = [...motivosVistoBuenoPred, ..._motivosVbExtra];
 
 		return Container(
-			color: context.surfaceWhite,
-			child: Column(
-				crossAxisAlignment: CrossAxisAlignment.stretch,
-				children: [
-					Expanded(
-						child: SingleChildScrollView(
-							padding: const EdgeInsets.only(left: 32, top: 0, right: 32, bottom: 32),
-							child: Column(
-								crossAxisAlignment: CrossAxisAlignment.start,
-								children: [
-									// 1. MOTIVO DE FIRMA
-									_buildDropdownStyle(
-										label: 'Motivo de firma',
-										value: _motivoSeleccionado,
-										items: todosLosMotivos,
-										predeterminados: motivosFirmaPred, // <-- Pasamos los predeterminados de firma
-										isMotivo: true,
-										onDelete: (m) async {
-											setState(() {
-												_motivosExtra.remove(m);
-												if (_motivoSeleccionado == m) {
-													_motivoSeleccionado = motivosFirmaPred.first;
-													JsonStorage.setString('firma_motivo_activo', _motivoSeleccionado);
-												}
-											});
-											await JsonStorage.setJson('firma_motivos_extra', _motivosExtra);
-										},
-										onAdd: () => _mostrarPopupAgregar(isMotivo: true, isVb: false),
-										onChanged: (val) {
-											if (val != null) {
-												setState(() => _motivoSeleccionado = val);
-												JsonStorage.setString('firma_motivo_activo', val); 
-											}
-										},
-									),
-
-									const SizedBox(height: 32),
-
-									// 2. MOTIVO DE VISTO BUENO
-									_buildDropdownStyle(
-										label: 'Motivo de visto bueno',
-										value: _motivoVbSeleccionado,
-										items: todosLosMotivosVb,
-										predeterminados: motivosVistoBuenoPred, // <-- Pasamos los predeterminados de VB
-										isMotivo: true,
-										onDelete: (m) async {
-											setState(() {
-												_motivosVbExtra.remove(m);
-												if (_motivoVbSeleccionado == m) {
-													_motivoVbSeleccionado = motivosVistoBuenoPred.first;
-													JsonStorage.setString('vb_motivo_activo', _motivoVbSeleccionado);
-												}
-											});
-											await JsonStorage.setJson('vb_motivos_extra', _motivosVbExtra);
-										},
-										onAdd: () => _mostrarPopupAgregar(isMotivo: true, isVb: true),
-										onChanged: (val) {
-											if (val != null) {
-												setState(() => _motivoVbSeleccionado = val);
-												JsonStorage.setString('vb_motivo_activo', val); 
-											}
-										},
-									),
-
-									const SizedBox(height: 32),
-
-									// 3. CARGOS
-									_buildDropdownStyle(
-										label: 'Cargos',
-										value: _cargoSeleccionado,
-										items: _cargos,
-										predeterminados: const [], // Los cargos no tienen predeterminados
-										isMotivo: false, 
-										onDelete: (c) async {
-											setState(() {
-												_cargos.remove(c);
-												if (_cargoSeleccionado == c) {
-													_cargoSeleccionado = _cargos.isNotEmpty ? _cargos.first : null;
-													JsonStorage.setString('firma_cargo_activo', _cargoSeleccionado ?? '');
-												}
-											});
-											await JsonStorage.setJson('firma_cargos', _cargos);
-										},
-										onAdd: () => _mostrarPopupAgregar(isMotivo: false, isVb: false),
-										onChanged: (val) {
-											if (val != null) {
-												setState(() => _cargoSeleccionado = val);
-												JsonStorage.setString('firma_cargo_activo', val); 
-											}
-										},
-									),
-
-									const SizedBox(height: 32),
-
-									// 4. SUFIJO
-									InputEditable(
-										label: 'Sufijo de la firma',
-										initialValue: JsonStorage.getString('firma_sufijo') ?? 'FG',
-										hintText: 'Máximo 3 letras',
-										isFolderPath: false,
-										maxLength: 3,
-										inputFormatters: [
-											FilteringTextInputFormatter.allow(RegExp('[a-zA-Z]')),
-											UpperCaseTextFormatter(),
-										],
-										onSave: (val) async {
-											final finalVal = val.trim().isEmpty ? 'FG' : val.trim().toUpperCase();
-											await JsonStorage.setString('firma_sufijo', finalVal);
-										},
-									),
-
-									const SizedBox(height: 32),
-
-									// 5. DIRECCIÓN / OFICINA
-									InputEditable(
-										label: 'Siglas de Dirección / Oficina',
-										initialValue: JsonStorage.getString('firma_direccion_oficina') ?? '',
-										hintText: 'Máximo 7 letras',
-										isFolderPath: false,
-										maxLength: 7,
-										inputFormatters: [
-											FilteringTextInputFormatter.allow(RegExp('[a-zA-Z]')),
-											UpperCaseTextFormatter(),
-										],
-										onSave: (val) async {
-											await JsonStorage.setString('firma_direccion_oficina', val.trim().toUpperCase());
-										},
-									),
-								],
-							),
+			color: Colors.white, // <-- FORZAMOS EL FONDO BLANCO
+			child: SingleChildScrollView(
+				child: Column(
+					crossAxisAlignment: CrossAxisAlignment.start,
+					children: [
+						// --- GRUPO 1: FIRMA DIGITAL ---
+						Text(
+							'Firma Digital',
+							style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: context.textDark),
 						),
-					),
-				],
+						const SizedBox(height: 16),
+						
+						_buildDropdownStyle(
+							label: 'Motivo de firma',
+							value: _motivoSeleccionado,
+							items: todosLosMotivos,
+							predeterminados: motivosFirmaPred,
+							isMotivo: true,
+							onDelete: (m) async {
+								setState(() {
+									_motivosExtra.remove(m);
+									if (_motivoSeleccionado == m) {
+										_motivoSeleccionado = motivosFirmaPred.first;
+										JsonStorage.setString('firma_motivo_activo', _motivoSeleccionado);
+									}
+								});
+								await JsonStorage.setJson('firma_motivos_extra', _motivosExtra);
+							},
+							onAdd: () => _mostrarPopupAgregar(isMotivo: true, isVb: false),
+							onChanged: (val) {
+								if (val != null) {
+									setState(() => _motivoSeleccionado = val);
+									JsonStorage.setString('firma_motivo_activo', val); 
+								}
+							},
+						),
+						const SizedBox(height: 24),
+						
+						_buildDropdownStyle(
+							label: 'Cargo',
+							value: _cargoSeleccionado,
+							items: _cargos,
+							predeterminados: const [],
+							isMotivo: false, 
+							onDelete: (c) async {
+								setState(() {
+									_cargos.remove(c);
+									if (_cargoSeleccionado == c) {
+										_cargoSeleccionado = _cargos.isNotEmpty ? _cargos.first : null;
+										JsonStorage.setString('firma_cargo_activo', _cargoSeleccionado ?? '');
+									}
+								});
+								await JsonStorage.setJson('firma_cargos', _cargos);
+							},
+							onAdd: () => _mostrarPopupAgregar(isMotivo: false, isVb: false),
+							onChanged: (val) {
+								if (val != null) {
+									setState(() => _cargoSeleccionado = val);
+									JsonStorage.setString('firma_cargo_activo', val); 
+								}
+							},
+						),
+						const SizedBox(height: 24),
+						
+						InputEditable(
+							label: 'Sufijo de la firma',
+							initialValue: JsonStorage.getString('firma_sufijo') ?? 'FG',
+							hintText: 'Máximo 3 letras',
+							isFolderPath: false,
+							maxLength: 3,
+							inputFormatters: [
+								FilteringTextInputFormatter.allow(RegExp('[a-zA-Z]')),
+								UpperCaseTextFormatter(),
+							],
+							onSave: (val) async {
+								final finalVal = val.trim().isEmpty ? 'FG' : val.trim().toUpperCase();
+								await JsonStorage.setString('firma_sufijo', finalVal);
+							},
+						),
+
+						const SizedBox(height: 48), 
+
+						// --- GRUPO 2: VISTO BUENO ---
+						Text(
+							'Visto Bueno',
+							style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: context.textDark),
+						),
+						const SizedBox(height: 16),
+
+						_buildDropdownStyle(
+							label: 'Motivo de visto bueno',
+							value: _motivoVbSeleccionado,
+							items: todosLosMotivosVb,
+							predeterminados: motivosVistoBuenoPred,
+							isMotivo: true,
+							onDelete: (m) async {
+								setState(() {
+									_motivosVbExtra.remove(m);
+									if (_motivoVbSeleccionado == m) {
+										_motivoVbSeleccionado = motivosVistoBuenoPred.first;
+										JsonStorage.setString('vb_motivo_activo', _motivoVbSeleccionado);
+									}
+								});
+								await JsonStorage.setJson('vb_motivos_extra', _motivosVbExtra);
+							},
+							onAdd: () => _mostrarPopupAgregar(isMotivo: true, isVb: true),
+							onChanged: (val) {
+								if (val != null) {
+									setState(() => _motivoVbSeleccionado = val);
+									JsonStorage.setString('vb_motivo_activo', val); 
+								}
+							},
+						),
+						const SizedBox(height: 24),
+
+						InputEditable(
+							label: 'Siglas de Dirección / Oficina',
+							initialValue: JsonStorage.getString('firma_direccion_oficina') ?? '',
+							hintText: 'Máximo 7 letras',
+							isFolderPath: false,
+							maxLength: 7,
+							inputFormatters: [
+								FilteringTextInputFormatter.allow(RegExp('[a-zA-Z]')),
+								UpperCaseTextFormatter(),
+							],
+							onSave: (val) async {
+								await JsonStorage.setString('firma_direccion_oficina', val.trim().toUpperCase());
+							},
+						),
+					],
+				),
 			),
 		);
 	}
