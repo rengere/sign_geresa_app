@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:firmador_geresa/data/motivo_firma.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart'; // Necesario para FilteringTextInputFormatter
+import 'package:flutter/services.dart';
 import 'package:pdfrx/pdfrx.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 import 'package:image/image.dart' as img;
@@ -52,15 +52,13 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	final TextEditingController _paginaCtrl = TextEditingController(text: '1');
 	final TextEditingController _correlativoCtrl = TextEditingController(text: '');
 
-	// --- ESTADO DEL MODO (FIRMA vs VISTO BUENO) ---
 	bool _esModoVistoBueno = false; 
 
 	bool _modoManual = true;
 	bool _procesando = false;
 	bool _foliarDocumento = false;
-	bool _documentoYaFirmado = false; // Para ocultar correlativo si ya está firmado
+	bool _documentoYaFirmado = false;
 
-	// --- VARIABLES DEL CORRELATIVO ---
 	double _fuenteCorrelativo = 12.0;
 	Offset? _posicionCorrelativo;
 
@@ -97,7 +95,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		
 		_documentoUnido = widget.pdfBytes;
 
-		// Verificamos si el documento ya está firmado
 		_verificarSiFirmado();
 	}
 
@@ -156,7 +153,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		_foliarDocumento = true;
 	}
 
-	// Alternar entre Firma y Visto Bueno
 	void _alternarModo(bool irAVistoBueno) {
 		setState(() {
 			_esModoVistoBueno = irAVistoBueno;
@@ -172,7 +168,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			}
 			_posicionPorcentual = null;
 			_posicionAutoElegida = null;
-			_posicionCorrelativo = null; // Ocultamos el correlativo al cambiar de modo
+			_posicionCorrelativo = null;
 		});
 	}
 
@@ -327,7 +323,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		);
 	}
 
-	// Límite exclusivo para el correlativo
 	Offset _limitarCorrelativo(Offset p, int pagina) {
 		if (_tamanos.isEmpty) return p;
 		final s = _tamanos[pagina - 1];
@@ -430,7 +425,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		if (!_pdfController.isReady || _tamanos.isEmpty) return;
 		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
 		if (box == null) return;
-
 		final centroGlobal = details.offset + const Offset(_anchoFirma / 2, _altoFirma / 2);
 		final local = box.globalToLocal(centroGlobal);
 		final inversa = Matrix4.inverted(_pdfController.value);
@@ -449,22 +443,13 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 		final rect = layouts[idx];
 		final size = _tamanos[idx];
-		
-		// CORRECCIÓN: El visor aplica un padding. Para calcular el porcentaje exacto, 
-		// usamos el ancho y alto reales de la hoja sin restarle los márgenes del visor.
 		final cx = (doc.dx - rect.left) / rect.width;
 		final cy = (doc.dy - rect.top) / rect.height;
 
 		setState(() {
 			_paginaFirma = idx + 1;
 			_paginaCtrl.text = (idx + 1).toString();
-			_posicionPorcentual = _limitar(
-				Offset(
-					cx - (_anchoFirma / size.width) / 2, 
-					cy - (_altoFirma / size.height) / 2
-				), 
-				idx + 1
-			);
+			_posicionPorcentual = _limitar(Offset(cx - (_anchoFirma / size.width) / 2, cy - (_altoFirma / size.height) / 2), idx + 1);
 		});
 	}
 
@@ -497,17 +482,11 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		setState(() {
 			_paginaFirma = idx + 1;
 			_paginaCtrl.text = (idx + 1).toString();
-			_posicionCorrelativo = _limitarCorrelativo(
-				Offset(
-					cx - (_anchoCorrelativo / size.width) / 2, 
-					cy - (_altoCorrelativo / size.height) / 2
-				), 
-				idx + 1
-			);
+			_posicionCorrelativo = _limitarCorrelativo(Offset(cx - (_anchoCorrelativo / size.width) / 2, cy - (_altoCorrelativo / size.height) / 2), idx + 1);
 		});
 	}
 
-	Future<void> _confirmar() async {
+		Future<void> _confirmar() async {
 		if (_posicionPorcentual == null) return;
 		
 		setState(() => _procesando = true);
@@ -516,7 +495,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			if (_foliarDocumento) {
 				try {
 					yaFirmado = await ApiService().estaFirmado(
-						pdfBytes: widget.pdfBytes,
+						pdfBytes: widget.pdfBytes, 
 						nombreArchivo: widget.nombreArchivo,
 					);
 				} catch (e) {
@@ -540,7 +519,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 					final docFoliar = sf.PdfDocument(inputBytes: documentoParaFirmar);
 					final int total = docFoliar.pages.count;
 
-					// Foliado (Números de página)
+					// Foliado
 					if (_foliarDocumento && !yaFirmado) {
 						final fuenteFoliar = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 8);
 						final negroFoliar = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
@@ -560,28 +539,39 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 						}
 					}
 
-					// Correlativo (El número que pusiste en el recuadro morado)
+					// Correlativo
 					if (_posicionCorrelativo != null && _correlativoCtrl.text.isNotEmpty) {
 						final page = docFoliar.pages[_paginaFirma - 1];
 						final pos = _posicionCorrelativo!;
-						
-						// Coordenadas base (esquina superior izquierda)
-						final xBase = pos.dx * page.size.width;
-						final yBase = pos.dy * page.size.height;
-						
-						// Ajuste para centrar el texto en el recuadro
-						// Subimos los px a +18 en X y +40 en Y para bajarlo y centrarlo
-						final xAjustada = xBase + 18; 
-						final yAjustada = yBase + 40; 
-						
+						final xBox = pos.dx * page.size.width;
+						final yBox = pos.dy * page.size.height;
+
 						final fuenteCorr = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, _fuenteCorrelativo, style: sf.PdfFontStyle.bold);
 						final negroCorr = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
 
+						// Medimos el tamaño real del texto
+						final texto = _correlativoCtrl.text;
+						final sizeTexto = fuenteCorr.measureString(texto);
+
+						// Centro geométrico del recuadro en puntos PDF
+						final centroX = xBox + (_anchoCorrelativo / 2);
+						final centroY = yBox + (_altoCorrelativo / 2);
+
+						// Helvetica: cap-height ≈ 0.718 em. Los dígitos ocupan el cap-height.
+						// Para que el número quede visualmente centrado en el box, la baseline
+						// debe quedar capHeight/2 POR DEBAJO del centro.
+						// En coordenadas PDF (Y crece hacia arriba), "debajo" = restar.
+						const double capHeightRatio = 0.718;
+						final double capHeightPts = capHeightRatio * _fuenteCorrelativo;
+
+						final double xFinal = centroX - (sizeTexto.width / 2);
+						final double yBaseline = centroY - (capHeightPts / 2);
+
 						page.graphics.drawString(
-							_correlativoCtrl.text, 
+							texto, 
 							fuenteCorr, 
 							brush: negroCorr, 
-							bounds: Rect.fromLTWH(xAjustada, yAjustada, _anchoCorrelativo, _altoCorrelativo)
+							bounds: Rect.fromLTWH(xFinal, yBaseline, 0, 0)
 						);
 					}
 
@@ -712,9 +702,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												overflow: TextOverflow.ellipsis,
 											),
 											const SizedBox(height: 2),
-											// CAMBIO: Usamos el motivo seleccionado dinámicamente
 											Text(
-												_motivoSeleccionado, 
+												'Visto\nbueno', 
 												style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1), 
 												textAlign: TextAlign.center,
 												maxLines: 2,
@@ -730,7 +719,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			);
 		}
 
-		// --- DISEÑO NORMAL (Firma Digital) ---
 		return SizedBox(
 			width: _anchoFirma,
 			height: _altoFirma,
@@ -759,42 +747,33 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		);
 	}
 
-
-	// Visual del correlativo (recuadro con puntitos y número)
 	Widget _correlativoVisual() {
 		return Container(
 			width: _anchoCorrelativo,
 			height: _altoCorrelativo,
 			decoration: BoxDecoration(
-				color: Colors.white.withValues(alpha: 0.3), // Fondo blanco al 30% de opacidad
-				border: Border.all(color: context.primaryPurple.withValues(alpha: 0.3), width: 1.5), // Borde morado al 30%
+				color: Colors.white.withValues(alpha: 0.9),
+				border: Border.all(color: context.primaryPurple, width: 1.5),
 				borderRadius: BorderRadius.circular(4),
 			),
-			child: Column(
-				mainAxisAlignment: MainAxisAlignment.center,
+			child: Stack(
+				alignment: Alignment.center,
 				children: [
-					Container(
-						padding: const EdgeInsets.only(top: 4),
-						child: Column(
-							children: [
-								Row(
-									mainAxisAlignment: MainAxisAlignment.center,
-									children: [
-										Icon(Icons.drag_indicator, size: 14, color: context.textGrey.withValues(alpha: 0.5)),
-									],
-								),
-							],
-						),
+					// Icono de arrastre sutil en la esquina superior derecha
+					Positioned(
+						top: 2,
+						right: 2,
+						child: Icon(Icons.drag_indicator, size: 14, color: context.textGrey.withValues(alpha: 0.5)),
 					),
-					Expanded(
-						child: Center(
-							child: Text(
-								_correlativoCtrl.text,
-								style: TextStyle(
-									fontSize: _fuenteCorrelativo,
-									fontWeight: FontWeight.bold,
-									color: Colors.black.withValues(alpha: 0.7), // Número un poco transparente para que no estorbe
-								),
+					// El número centrado
+					Center(
+						child: Text(
+							_correlativoCtrl.text,
+							style: TextStyle(
+								fontSize: _fuenteCorrelativo,
+								fontWeight: FontWeight.bold,
+								color: Colors.black,
+								height: 1.0,
 							),
 						),
 					),
@@ -803,7 +782,44 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		);
 	}
 
+	Widget _opcionPosicion(PosicionFirma p, String tooltip) {
+		final seleccionado = _posicionAuto == p;
+		return Tooltip(
+			message: tooltip,
+			child: InkWell(
+				customBorder: const CircleBorder(),
+				onTap: () => _elegirPosicionAuto(p),
+				child: Padding(
+					padding: const EdgeInsets.all(6),
+					child: Icon(seleccionado ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded, size: 22, color: seleccionado ? context.primaryPurple : context.textGrey),
+				),
+			),
+		);
+	}
 
+	Widget _selectorPosicion() {
+		return Container(
+			margin: const EdgeInsets.only(top: 16),
+			padding: const EdgeInsets.all(12),
+			decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
+			child: Column(
+				children: [
+					Text('Posición en la página', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.textGrey)),
+					const SizedBox(height: 8),
+					Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+						_opcionPosicion(PosicionFirma.arribaIzquierda, 'Arriba izquierda'),
+						_opcionPosicion(PosicionFirma.arribaCentro, 'Arriba centro'),
+						_opcionPosicion(PosicionFirma.arribaDerecha, 'Arriba derecha'),
+					]),
+					Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+						_opcionPosicion(PosicionFirma.abajoIzquierda, 'Abajo izquierda'),
+						_opcionPosicion(PosicionFirma.abajoCentro, 'Abajo centro'),
+						_opcionPosicion(PosicionFirma.abajoDerecha, 'Abajo derecha'),
+					]),
+				],
+			),
+		);
+	}
 
 	Widget _botonZoom(IconData icono, String tooltip, VoidCallback onTap) {
 		return Material(
@@ -920,7 +936,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													pageOverlaysBuilder: (context, pageRect, page) {
 														final List<Widget> overlays = [];
 														
-														// Overlay de la Firma
 														if (_posicionPorcentual != null && page.pageNumber == _paginaFirma) {
 															final escala = pageRect.width / page.width;
 															overlays.add(
@@ -948,7 +963,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 															);
 														}
 
-														// Overlay del Correlativo
 														if (_correlativoCtrl.text.isNotEmpty && _posicionCorrelativo != null && page.pageNumber == _paginaFirma) {
 															final escala = pageRect.width / page.width;
 															overlays.add(
@@ -1087,7 +1101,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												),
 											),
 
-										// --- TARGET DE LA FIRMA ---
 										Positioned.fill(
 											child: DragTarget<Uint8List>(
 												onAcceptWithDetails: _alSoltar,
@@ -1097,7 +1110,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 											),
 										),
 
-										// --- TARGET DEL CORRELATIVO ---
 										Positioned.fill(
 											child: DragTarget<String>(
 												onAcceptWithDetails: _alSoltarCorrelativo,
@@ -1165,7 +1177,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												
 												const SizedBox(height: 24),
 												
-												// TOGGLE
 												Container(
 													padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
 													decoration: BoxDecoration(
@@ -1231,7 +1242,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												],
 												const Divider(height: 32),
 
-												// BOTÓN ÚNICO DE FIRMA MANUAL
 												if (!_esModoVistoBueno) ...[
 													OutlinedButton.icon(
 														onPressed: _colocarManual,
@@ -1248,7 +1258,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													const SizedBox(height: 24),
 												],
 												
-												// EL DRAGGABLE DE LA FIRMA
 												Center(
 													child: Draggable<Uint8List>(
 														data: widget.imagenFirmaBytes,
@@ -1271,37 +1280,35 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 												const SizedBox(height: 16),
 
-												// SWITCH PARA FOLIAR
-												if (!_esModoVistoBueno) ...[
-													Container(
-														padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-														decoration: BoxDecoration(
-															color: context.surfaceGrey,
-															borderRadius: BorderRadius.circular(context.radiusMd),
-															border: Border.all(color: context.borderColor),
-														),
-														child: Row(
-															mainAxisAlignment: MainAxisAlignment.spaceBetween,
-															children: [
-																Row(
-																	children: [
-																		Icon(Icons.format_list_numbered_rounded, size: 20, color: context.textDark),
-																		const SizedBox(width: 8),
-																		Text('Foliar documento', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textDark)),
-																	],
-																),
-																Switch(
-																	value: _foliarDocumento,
-																	activeColor: context.primaryPurple,
-																	onChanged: (val) => setState(() => _foliarDocumento = val),
-																),
-															],
-														),
+												// SWITCH PARA FOLIAR (AHORA SIEMPRE VISIBLE)
+												Container(
+													padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+													decoration: BoxDecoration(
+														color: context.surfaceGrey,
+														borderRadius: BorderRadius.circular(context.radiusMd),
+														border: Border.all(color: context.borderColor),
 													),
-												],
+													child: Row(
+														mainAxisAlignment: MainAxisAlignment.spaceBetween,
+														children: [
+															Row(
+																children: [
+																	Icon(Icons.format_list_numbered_rounded, size: 20, color: context.textDark),
+																	const SizedBox(width: 8),
+																	Text('Foliar documento', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textDark)),
+																],
+															),
+															Switch(
+																value: _foliarDocumento,
+																activeColor: context.primaryPurple,
+																onChanged: (val) => setState(() => _foliarDocumento = val),
+															),
+														],
+													),
+												),
 
-												// --- BLOQUE DEL CORRELATIVO ---
-												if (!_esModoVistoBueno && !_documentoYaFirmado) ...[
+												// BLOQUE DEL CORRELATIVO (AHORA SIEMPRE VISIBLE)
+												if (!_documentoYaFirmado) ...[
 													const SizedBox(height: 16),
 													Container(
 														padding: const EdgeInsets.all(12),
@@ -1351,7 +1358,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																),
 																const SizedBox(height: 8),
 																
-																// EL DRAGGABLE DEL CORRELATIVO
 																if (_correlativoCtrl.text.isNotEmpty)
 																	Center(
 																		child: Draggable<String>(
@@ -1410,7 +1416,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													backgroundColor: context.primaryPurple,
 													foregroundColor: Colors.white,
 													elevation: 0,
-													minimumSize: const Size.fromHeight(56), // Un poco más alto para 2 líneas
+													minimumSize: const Size.fromHeight(56),
 													shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill)),
 												),
 												child: _procesando
