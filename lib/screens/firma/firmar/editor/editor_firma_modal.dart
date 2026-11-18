@@ -702,6 +702,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												overflow: TextOverflow.ellipsis,
 											),
 											const SizedBox(height: 2),
+											
 											Text(
 												'Visto\nbueno', 
 												style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1), 
