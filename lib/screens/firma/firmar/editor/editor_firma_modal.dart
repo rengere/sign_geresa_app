@@ -157,12 +157,18 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		setState(() {
 			_esModoVistoBueno = irAVistoBueno;
 			if (_esModoVistoBueno) {
-				_motivoSeleccionado = _motivosVbDisponibles.isNotEmpty ? _motivosVbDisponibles.first : 'Visto bueno';
+				// Conservar la selección si ya es un motivo VB válido
+				if (!_motivosVbDisponibles.contains(_motivoSeleccionado)) {
+					_motivoSeleccionado = _motivosVbDisponibles.isNotEmpty ? _motivosVbDisponibles.first : 'Visto bueno';
+				}
 				_foliarDocumento = false;
 				_modoManual = false;
 				_posicionAuto = PosicionFirma.abajoIzquierda;
 			} else {
-				_motivoSeleccionado = _motivosFirmaDisponibles.isNotEmpty ? _motivosFirmaDisponibles.first : '';
+				// Conservar la selección si ya es un motivo Firma válido
+				if (!_motivosFirmaDisponibles.contains(_motivoSeleccionado)) {
+					_motivoSeleccionado = _motivosFirmaDisponibles.isNotEmpty ? _motivosFirmaDisponibles.first : '';
+				}
 				_foliarDocumento = true;
 				_modoManual = true;
 			}
@@ -486,7 +492,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		});
 	}
 
-		Future<void> _confirmar() async {
+	Future<void> _confirmar() async {
 		if (_posicionPorcentual == null) return;
 		
 		setState(() => _procesando = true);
@@ -654,6 +660,22 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		);
 	}
 
+	/// Convierte el motivo a un texto apto para el sello circular (hasta 2 líneas).
+	/// No modifica `_motivoSeleccionado`; solo se usa para render.
+	String _motivoVbParaSello() {
+		final motivo = _motivoSeleccionado.trim();
+		if (motivo.isEmpty) return 'Visto\nbueno';
+
+		// Si contiene "Visto bueno" (case-insensitive) y cabe como 2 palabras, lo partimos.
+		final palabras = motivo.split(RegExp(r'\s+'));
+		if (palabras.length == 2) {
+			return '${palabras[0]}\n${palabras[1]}';
+		}
+
+		// Para frases más largas, dejamos que maxLines: 2 haga el wrap natural.
+		return motivo;
+	}
+
 	Widget _firmaVisual() {
 		final ahora = DateTime.now();
 		final fechaStr = '${ahora.day.toString().padLeft(2, '0')}/${ahora.month.toString().padLeft(2, '0')}/${ahora.year}';
@@ -702,9 +724,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												overflow: TextOverflow.ellipsis,
 											),
 											const SizedBox(height: 2),
-											
 											Text(
-												'Visto\nbueno', 
+												_motivoVbParaSello(), 
 												style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1), 
 												textAlign: TextAlign.center,
 												maxLines: 2,
