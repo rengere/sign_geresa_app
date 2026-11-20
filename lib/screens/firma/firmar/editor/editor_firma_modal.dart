@@ -13,6 +13,7 @@ import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart';
 import 'package:firmador_geresa/services/api_service.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/detector_dnie_service.dart';
+import 'package:firmador_geresa/screens/firma/firmar/editor/config_sello_firma.dart';
 
 enum PosicionFirma { arribaIzquierda, arribaCentro, arribaDerecha, abajoIzquierda, abajoCentro, abajoDerecha }
 
@@ -68,12 +69,12 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	double _fuenteCorrelativo = 12.0;
 	Offset? _posicionCorrelativo;
 
-	static const double _anchoFirma = 240;
-	static const double _altoFirma = 100;
-	static const double _lado = 54;
-	static const double _margen = 5;
-	static const double _anchoCorrelativo = 50;
-	static const double _altoCorrelativo = 70;
+	static const double _anchoFirma = ConfigSelloFirma.anchoFirma;
+	static const double _altoFirma = ConfigSelloFirma.altoFirma;
+	static const double _lado = ConfigSelloFirma.ladoImagen;
+	static const double _margen = ConfigSelloFirma.margen;
+	static const double _anchoCorrelativo = ConfigSelloFirma.anchoCorrelativo;
+	static const double _altoCorrelativo = ConfigSelloFirma.altoCorrelativo;
 
 	Offset? _posicionPorcentual;
 	int _paginaFirma = 1;
@@ -679,8 +680,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 	Widget _imagenFirma({double? size}) {
 		final bytes = _esModoVistoBueno
-				? widget.imagenVistoBuenoBytes
-				: widget.imagenFirmaBytes;
+			? widget.imagenVistoBuenoBytes
+			: widget.imagenFirmaBytes;
 
 		return Image.memory(
 			bytes,
@@ -693,7 +694,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 	String _motivoVbParaSello() {
 		final motivo = _motivoSeleccionado.trim();
-		if (motivo.isEmpty) return 'Visto\nbueno';
+		if (motivo.isEmpty) return ConfigSelloFirma.motivoVbFallback;
 
 		final palabras = motivo.split(RegExp(r'\s+'));
 		if (palabras.length == 2) {
@@ -703,18 +704,30 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		return motivo;
 	}
 
+
 	Widget _firmaVisual() {
 		final ahora = DateTime.now();
-		final fechaStr = '${ahora.day.toString().padLeft(2, '0')}/${ahora.month.toString().padLeft(2, '0')}/${ahora.year}';
+		final fechaStr = ConfigSelloFirma.formatearFecha(ahora);
+		final horaStr = ConfigSelloFirma.formatearHora(ahora);
 
-		final colorTexto = _hardwareDisponible ? Colors.black : Colors.red;
-		final nombreMostrar = _hardwareDisponible ? _nombreFirmante : '----------------------------------';
-		final dniMostrar = _hardwareDisponible ? _dniFirmante : '-------------';
+		final colorTexto = _hardwareDisponible
+				? ConfigSelloFirma.colorTextoNormal
+				: ConfigSelloFirma.colorTextoPlaceholder;
+		final nombreMostrar = _hardwareDisponible
+				? _nombreFirmante
+				: ConfigSelloFirma.placeholderNombre;
+		final dniMostrar = _hardwareDisponible
+				? _dniFirmante
+				: ConfigSelloFirma.placeholderDni;
 
-		final estiloNormal = TextStyle(fontSize: 6.5, color: colorTexto, height: 1.0);
+		final estiloNormal = TextStyle(
+			fontSize: ConfigSelloFirma.fuenteNormal,
+			color: colorTexto,
+			height: ConfigSelloFirma.alturaLineaNormal,
+		);
 
 		if (_esModoVistoBueno) {
-			const double ladoSello = 56;
+			const double ladoSello = ConfigSelloFirma.ladoSelloVb;
 
 			return SizedBox(
 				width: _anchoFirma,
@@ -740,7 +753,12 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 											if (_direccionOficina.isNotEmpty) ...[
 												Text(
 													_direccionOficina.toUpperCase(),
-													style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0),
+													style: const TextStyle(
+														fontSize: ConfigSelloFirma.fuenteDireccionVb,
+														color: Colors.black,
+														fontWeight: FontWeight.bold,
+														height: 1.0,
+													),
 													textAlign: TextAlign.center,
 													maxLines: 1,
 													overflow: TextOverflow.ellipsis,
@@ -749,7 +767,11 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 											],
 											Text(
 												fechaStr,
-												style: const TextStyle(fontSize: 4.5, color: Colors.black, height: 1.0),
+												style: const TextStyle(
+													fontSize: ConfigSelloFirma.fuenteFechaVb,
+													color: Colors.black,
+													height: 1.0,
+												),
 												textAlign: TextAlign.center,
 												maxLines: 1,
 												overflow: TextOverflow.ellipsis,
@@ -757,7 +779,12 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 											const SizedBox(height: 2),
 											Text(
 												_motivoVbParaSello(),
-												style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1),
+												style: const TextStyle(
+													fontSize: ConfigSelloFirma.fuenteMotivoVb,
+													color: Colors.black,
+													fontWeight: FontWeight.bold,
+													height: ConfigSelloFirma.alturaLineaVb,
+												),
 												textAlign: TextAlign.center,
 												maxLines: 2,
 												overflow: TextOverflow.ellipsis,
@@ -785,13 +812,13 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 							mainAxisAlignment: MainAxisAlignment.center,
 							crossAxisAlignment: CrossAxisAlignment.start,
 							children: [
-								Text('Firmado digitalmente por:', style: estiloNormal),
+								Text(ConfigSelloFirma.labelFirmadoPor, style: estiloNormal),
 								Text(nombreMostrar, style: estiloNormal),
 								if (_cargoSeleccionado != null && _cargoSeleccionado!.isNotEmpty)
 									Text(_cargoSeleccionado!, style: estiloNormal),
-								Text('FIR (DNI $dniMostrar) hard', style: estiloNormal),
-								Text('F: $fechaStr | Folios: $_totalPaginas', style: estiloNormal),
-								Text('Motivo: $_motivoSeleccionado', style: estiloNormal),
+								Text(ConfigSelloFirma.textoDni(dniMostrar), style: estiloNormal),
+								Text(ConfigSelloFirma.textoFechaHoraFolios(fechaStr, horaStr, _totalPaginas), style: estiloNormal),
+								Text(ConfigSelloFirma.textoMotivo(_motivoSeleccionado), style: estiloNormal),
 							],
 						),
 					),
