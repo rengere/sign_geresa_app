@@ -68,7 +68,10 @@ class SignScreen extends StatelessWidget {
 				} catch (e) {
 					intentos++;
 					if (intentos >= maxIntentos) {
-						rethrow;
+						// No relanzamos: continuamos sin titular para permitir
+						// abrir el editor igual (modo VB siempre disponible).
+						titular = null;
+						break;
 					}
 					await Future.delayed(const Duration(milliseconds: 200));
 				}
@@ -91,9 +94,11 @@ class SignScreen extends StatelessWidget {
 						pdfBytes: bytesPdf,
 						nombreArchivo: nombreFinal,
 						imagenFirmaBytes: bytesNormal,
-						imagenVistoBuenoBytes: bytesVB, 
-						nombreFirmante: titular!.nombre,
-						dniFirmante: titular.dni,
+						imagenVistoBuenoBytes: bytesVB,
+						// Si no hay titular, pasamos vacío y el editor se encarga
+						// de mostrar placeholders rojos y bloquear la firma.
+						nombreFirmante: titular?.nombre ?? '',
+						dniFirmante: titular?.dni ?? '',
 					),
 				),
 			);
@@ -111,8 +116,8 @@ class SignScreen extends StatelessWidget {
 			final ancho = resultadoEditor['ancho'] as double?;
 			final alto = resultadoEditor['alto'] as double?;
 
-			final rutaDestino = requiereFirma 
-				? "$obtrutaNxc$firmados" 
+			final rutaDestino = requiereFirma
+				? "$obtrutaNxc$firmados"
 				: "$obtrutaNxc$proyectados";
 
 			await showDialog(
@@ -122,7 +127,7 @@ class SignScreen extends StatelessWidget {
 					pdfBytes: pdfProcesado,
 					nombreArchivo: nombreFinal,
 					rutaDestinoFinal: rutaDestino, // <-- SOLO RUTA FINAL
-					esVistoBueno: !requiereFirma, 
+					esVistoBueno: !requiereFirma,
 					imagenSello: imgSello,
 					pagina: pagina,
 					x: x,

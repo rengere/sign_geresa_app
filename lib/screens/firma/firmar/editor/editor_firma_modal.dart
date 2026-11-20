@@ -12,6 +12,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart';
 import 'package:firmador_geresa/services/api_service.dart';
+import 'package:firmador_geresa/screens/firma/firmar/editor/detector_dnie_service.dart';
 
 enum PosicionFirma { arribaIzquierda, arribaCentro, arribaDerecha, abajoIzquierda, abajoCentro, abajoDerecha }
 
@@ -25,8 +26,8 @@ class DocumentoReferencial {
 class EditorFirmaModal extends StatefulWidget {
 	final Uint8List pdfBytes;
 	final String nombreArchivo;
-	final Uint8List imagenFirmaBytes;      
-	final Uint8List imagenVistoBuenoBytes; 
+	final Uint8List imagenFirmaBytes;
+	final Uint8List imagenVistoBuenoBytes;
 	final String nombreFirmante;
 	final String dniFirmante;
 
@@ -48,11 +49,16 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	final PdfViewerController _pdfController = PdfViewerController();
 	final GlobalKey _stackKey = GlobalKey();
 	final GlobalKey _selloKey = GlobalKey();
-	
+
 	final TextEditingController _paginaCtrl = TextEditingController(text: '1');
 	final TextEditingController _correlativoCtrl = TextEditingController(text: '');
 
-	bool _esModoVistoBueno = false; 
+	final DetectorDnieService _detector = DetectorDnieService();
+	bool _hardwareDisponible = false;
+	String _nombreFirmante = '';
+	String _dniFirmante = '';
+
+	bool _esModoVistoBueno = false;
 
 	bool _modoManual = true;
 	bool _procesando = false;
@@ -63,14 +69,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	Offset? _posicionCorrelativo;
 
 	static const double _anchoFirma = 240;
-	static const double _altoFirma = 100; 
-	static const double _lado = 54; 
-	static const double _margen = 5; 
-	static const double _anchoCorrelativo = 50; 
-	static const double _altoCorrelativo = 70;  
+	static const double _altoFirma = 100;
+	static const double _lado = 54;
+	static const double _margen = 5;
+	static const double _anchoCorrelativo = 50;
+	static const double _altoCorrelativo = 70;
 
 	Offset? _posicionPorcentual;
-	int _paginaFirma = 1; 
+	int _paginaFirma = 1;
 	int _totalPaginas = 1;
 	List<Size> _tamanos = const [];
 	PosicionFirma _posicionAuto = PosicionFirma.abajoIzquierda;
@@ -81,28 +87,62 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 	String _motivoSeleccionado = '';
 	String? _cargoSeleccionado;
-	
+
 	List<String> _motivosFirmaDisponibles = [];
 	List<String> _motivosVbDisponibles = [];
 	List<String> _cargosDisponibles = [];
-	
-	String _direccionOficina = ''; 
+
+	String _direccionOficina = '';
 
 	@override
 	void initState() {
 		super.initState();
 		_cargarConfiguracionFirma();
-		
+
 		_documentoUnido = widget.pdfBytes;
+
+		_nombreFirmante = widget.nombreFirmante;
+		_dniFirmante = widget.dniFirmante;
+		_hardwareDisponible = _nombreFirmante.isNotEmpty && _dniFirmante.isNotEmpty;
+
+		_detector.onCambioHardware = _alCambiarHardware;
+		_detector.iniciar();
 
 		_verificarSiFirmado();
 	}
 
 	@override
 	void dispose() {
+		_detector.detener();
 		_paginaCtrl.dispose();
 		_correlativoCtrl.dispose();
 		super.dispose();
+	}
+
+	Future<void> _alCambiarHardware(bool disponible) async {
+		if (!mounted) return;
+		if (disponible) {
+			try {
+				final titular = await ApiService().obtenerTitular();
+				if (mounted) {
+					setState(() {
+						_hardwareDisponible = true;
+						_nombreFirmante = titular.nombre;
+						_dniFirmante = titular.dni;
+					});
+				}
+			} catch (_) {
+				if (mounted) {
+					setState(() => _hardwareDisponible = false);
+				}
+			}
+		} else {
+			setState(() {
+				_hardwareDisponible = false;
+				_nombreFirmante = '';
+				_dniFirmante = '';
+			});
+		}
 	}
 
 	Future<void> _verificarSiFirmado() async {
@@ -120,17 +160,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	void _cargarConfiguracionFirma() {
-		// --- Cargar Firma ---
 		final motivosFirmaExtra = (JsonStorage.getJson('firma_motivos_extra') as List?)?.cast<String>() ?? [];
 		_motivosFirmaDisponibles = [...motivosFirmaPred, ...motivosFirmaExtra];
-		
+
 		_cargosDisponibles = (JsonStorage.getJson('firma_cargos') as List?)?.cast<String>() ?? [];
 
-		// --- Cargar Visto Bueno ---
 		final motivosVbExtra = (JsonStorage.getJson('vb_motivos_extra') as List?)?.cast<String>() ?? [];
 		_motivosVbDisponibles = [...motivosVistoBuenoPred, ...motivosVbExtra];
 
-		// --- Asignar valores iniciales ---
 		final firmaActiva = JsonStorage.getString('firma_motivo_activo');
 		if (firmaActiva != null && _motivosFirmaDisponibles.contains(firmaActiva)) {
 			_motivoSeleccionado = firmaActiva;
@@ -147,7 +184,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 		_direccionOficina = JsonStorage.getString('firma_direccion_oficina') ?? '';
 
-		// Por defecto, iniciamos en modo Firma (no Visto Bueno)
 		_esModoVistoBueno = false;
 		_modoManual = true;
 		_foliarDocumento = true;
@@ -157,7 +193,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		setState(() {
 			_esModoVistoBueno = irAVistoBueno;
 			if (_esModoVistoBueno) {
-				// Conservar la selección si ya es un motivo VB válido
 				if (!_motivosVbDisponibles.contains(_motivoSeleccionado)) {
 					_motivoSeleccionado = _motivosVbDisponibles.isNotEmpty ? _motivosVbDisponibles.first : 'Visto bueno';
 				}
@@ -165,7 +200,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				_modoManual = false;
 				_posicionAuto = PosicionFirma.abajoIzquierda;
 			} else {
-				// Conservar la selección si ya es un motivo Firma válido
 				if (!_motivosFirmaDisponibles.contains(_motivoSeleccionado)) {
 					_motivoSeleccionado = _motivosFirmaDisponibles.isNotEmpty ? _motivosFirmaDisponibles.first : '';
 				}
@@ -183,7 +217,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			setState(() => _documentoUnido = widget.pdfBytes);
 			return;
 		}
-		
+
 		setState(() => _procesando = true);
 		try {
 			final documentoFinal = sf.PdfDocument();
@@ -207,7 +241,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 			final List<int> resultado = await documentoFinal.save();
 			documentoFinal.dispose();
-			
+
 			setState(() {
 				_documentoUnido = Uint8List.fromList(resultado);
 				_procesando = false;
@@ -312,11 +346,11 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			_actualizarDocumentoUnido();
 		});
 	}
-	
+
 	Offset _limitar(Offset p, int pagina) {
 		if (_tamanos.isEmpty) return p;
 		final s = _tamanos[pagina - 1];
-		
+
 		final double anchoActual = _esModoVistoBueno ? 56.0 : _anchoFirma;
 		final double altoActual = _esModoVistoBueno ? 56.0 : _altoFirma;
 
@@ -324,7 +358,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		final double maxY = (1 - (altoActual / s.height)) + (10 / s.height);
 
 		return Offset(
-			p.dx.clamp(0.0, maxX.clamp(0.0, 1.0)), 
+			p.dx.clamp(0.0, maxX.clamp(0.0, 1.0)),
 			p.dy.clamp(0.0, maxY.clamp(0.0, 1.0))
 		);
 	}
@@ -332,10 +366,10 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	Offset _limitarCorrelativo(Offset p, int pagina) {
 		if (_tamanos.isEmpty) return p;
 		final s = _tamanos[pagina - 1];
-		
+
 		final maxX = (1 - (_anchoCorrelativo / s.width)).clamp(0.0, 1.0);
 		final maxY = (1 - (_altoCorrelativo / s.height)).clamp(0.0, 1.0);
-		
+
 		return Offset(p.dx.clamp(0.0, maxX), p.dy.clamp(0.0, maxY));
 	}
 
@@ -347,7 +381,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	void _cambiarPagina(int delta) {
 		final nueva = (_paginaFirma + delta).clamp(1, _totalPaginas);
 		if (nueva == _paginaFirma) return;
-		
+
 		setState(() {
 			_paginaFirma = nueva;
 			_paginaCtrl.text = nueva.toString();
@@ -494,14 +528,18 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 	Future<void> _confirmar() async {
 		if (_posicionPorcentual == null) return;
-		
+
+		if (!_esModoVistoBueno && !_hardwareDisponible) return;
+
 		setState(() => _procesando = true);
+		_detector.pausar();
+
 		try {
 			bool yaFirmado = false;
 			if (_foliarDocumento) {
 				try {
 					yaFirmado = await ApiService().estaFirmado(
-						pdfBytes: widget.pdfBytes, 
+						pdfBytes: widget.pdfBytes,
 						nombreArchivo: widget.nombreArchivo,
 					);
 				} catch (e) {
@@ -511,7 +549,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 			final boundary = _selloKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
 			if (boundary == null) throw Exception('No se encontró el sello visual');
-			
+
 			await Future.delayed(const Duration(milliseconds: 100));
 			final image = await boundary.toImage(pixelRatio: 3.0);
 			final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -519,13 +557,11 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 			Uint8List documentoParaFirmar = _documentoUnido;
 
-			// 1. FOLIADO Y CORRELATIVO (solo si no está firmado)
 			if (!_documentoYaFirmado) {
 				if ((_foliarDocumento && !yaFirmado) || _posicionCorrelativo != null) {
 					final docFoliar = sf.PdfDocument(inputBytes: documentoParaFirmar);
 					final int total = docFoliar.pages.count;
 
-					// Foliado
 					if (_foliarDocumento && !yaFirmado) {
 						final fuenteFoliar = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, 8);
 						final negroFoliar = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
@@ -535,17 +571,16 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 							final numFolio = total - i;
 							final xFolio = page.size.width - 30;
 							final yFolio = page.size.height - 20;
-							
+
 							page.graphics.drawString(
-								'$numFolio', 
-								fuenteFoliar, 
-								brush: negroFoliar, 
+								'$numFolio',
+								fuenteFoliar,
+								brush: negroFoliar,
 								bounds: Rect.fromLTWH(xFolio, yFolio, 0, 0)
 							);
 						}
 					}
 
-					// Correlativo
 					if (_posicionCorrelativo != null && _correlativoCtrl.text.isNotEmpty) {
 						final page = docFoliar.pages[_paginaFirma - 1];
 						final pos = _posicionCorrelativo!;
@@ -555,18 +590,12 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 						final fuenteCorr = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, _fuenteCorrelativo, style: sf.PdfFontStyle.bold);
 						final negroCorr = sf.PdfSolidBrush(sf.PdfColor(0, 0, 0));
 
-						// Medimos el tamaño real del texto
 						final texto = _correlativoCtrl.text;
 						final sizeTexto = fuenteCorr.measureString(texto);
 
-						// Centro geométrico del recuadro en puntos PDF
 						final centroX = xBox + (_anchoCorrelativo / 2);
 						final centroY = yBox + (_altoCorrelativo / 2);
 
-						// Helvetica: cap-height ≈ 0.718 em. Los dígitos ocupan el cap-height.
-						// Para que el número quede visualmente centrado en el box, la baseline
-						// debe quedar capHeight/2 POR DEBAJO del centro.
-						// En coordenadas PDF (Y crece hacia arriba), "debajo" = restar.
 						const double capHeightRatio = 0.718;
 						final double capHeightPts = capHeightRatio * _fuenteCorrelativo;
 
@@ -574,9 +603,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 						final double yBaseline = centroY - (capHeightPts / 2);
 
 						page.graphics.drawString(
-							texto, 
-							fuenteCorr, 
-							brush: negroCorr, 
+							texto,
+							fuenteCorr,
+							brush: negroCorr,
 							bounds: Rect.fromLTWH(xFinal, yBaseline, 0, 0)
 						);
 					}
@@ -587,7 +616,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				}
 			}
 
-			// 2. ESTAMPADO DE FIRMA
 			if (_esModoVistoBueno) {
 				final decoded = img.decodeImage(pngBytes);
 				if (decoded == null) throw Exception('No se pudo decodificar la imagen');
@@ -610,7 +638,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				document.dispose();
 
 				if (!mounted) return;
-				
+
 				Navigator.of(context).pop({
 					'pdfBytes': Uint8List.fromList(resultado),
 					'requiereFirma': false,
@@ -618,7 +646,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			} else {
 				final pos = _posicionPorcentual!;
 				final pageSize = _tamanos[_paginaFirma - 1];
-				
+
 				double xPuntos = pos.dx * pageSize.width;
 				double yPuntos = pos.dy * pageSize.height;
 
@@ -626,9 +654,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				yPuntos = yPuntos.clamp(0.0, pageSize.height - _altoFirma);
 
 				if (!mounted) return;
-				
+
 				Navigator.of(context).pop({
-					'pdfBytes': documentoParaFirmar, 
+					'pdfBytes': documentoParaFirmar,
 					'requiereFirma': true,
 					'imagenSello': pngBytes,
 					'pagina': _paginaFirma,
@@ -642,52 +670,55 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			debugPrint('[EditorFirma] Error: $e');
 			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
 		} finally {
-			if (mounted) setState(() => _procesando = false);
+			if (mounted) {
+				setState(() => _procesando = false);
+				_detector.reanudar();
+			}
 		}
 	}
 
 	Widget _imagenFirma({double? size}) {
-		final bytes = _esModoVistoBueno 
-				? widget.imagenVistoBuenoBytes 
+		final bytes = _esModoVistoBueno
+				? widget.imagenVistoBuenoBytes
 				: widget.imagenFirmaBytes;
-				
+
 		return Image.memory(
-			bytes, 
-			width: size ?? _lado, 
-			height: size ?? _lado, 
-			fit: BoxFit.contain, 
+			bytes,
+			width: size ?? _lado,
+			height: size ?? _lado,
+			fit: BoxFit.contain,
 			filterQuality: FilterQuality.high
 		);
 	}
 
-	/// Convierte el motivo a un texto apto para el sello circular (hasta 2 líneas).
-	/// No modifica `_motivoSeleccionado`; solo se usa para render.
 	String _motivoVbParaSello() {
 		final motivo = _motivoSeleccionado.trim();
 		if (motivo.isEmpty) return 'Visto\nbueno';
 
-		// Si contiene "Visto bueno" (case-insensitive) y cabe como 2 palabras, lo partimos.
 		final palabras = motivo.split(RegExp(r'\s+'));
 		if (palabras.length == 2) {
 			return '${palabras[0]}\n${palabras[1]}';
 		}
 
-		// Para frases más largas, dejamos que maxLines: 2 haga el wrap natural.
 		return motivo;
 	}
 
 	Widget _firmaVisual() {
 		final ahora = DateTime.now();
 		final fechaStr = '${ahora.day.toString().padLeft(2, '0')}/${ahora.month.toString().padLeft(2, '0')}/${ahora.year}';
-		
-		const estiloNormal = TextStyle(fontSize: 6.5, color: Colors.black, height: 1.0);
+
+		final colorTexto = _hardwareDisponible ? Colors.black : Colors.red;
+		final nombreMostrar = _hardwareDisponible ? _nombreFirmante : '----------------------------------';
+		final dniMostrar = _hardwareDisponible ? _dniFirmante : '-------------';
+
+		final estiloNormal = TextStyle(fontSize: 6.5, color: colorTexto, height: 1.0);
 
 		if (_esModoVistoBueno) {
-			const double ladoSello = 56; 
+			const double ladoSello = 56;
 
 			return SizedBox(
-				width: _anchoFirma, 
-				height: _altoFirma, 
+				width: _anchoFirma,
+				height: _altoFirma,
 				child: Align(
 					alignment: Alignment.centerLeft,
 					child: Container(
@@ -708,8 +739,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										children: [
 											if (_direccionOficina.isNotEmpty) ...[
 												Text(
-													_direccionOficina.toUpperCase(), 
-													style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0), 
+													_direccionOficina.toUpperCase(),
+													style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.0),
 													textAlign: TextAlign.center,
 													maxLines: 1,
 													overflow: TextOverflow.ellipsis,
@@ -717,16 +748,16 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												const SizedBox(height: 1),
 											],
 											Text(
-												fechaStr, 
-												style: const TextStyle(fontSize: 4.5, color: Colors.black, height: 1.0), 
+												fechaStr,
+												style: const TextStyle(fontSize: 4.5, color: Colors.black, height: 1.0),
 												textAlign: TextAlign.center,
 												maxLines: 1,
 												overflow: TextOverflow.ellipsis,
 											),
 											const SizedBox(height: 2),
 											Text(
-												_motivoVbParaSello(), 
-												style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1), 
+												_motivoVbParaSello(),
+												style: const TextStyle(fontSize: 5, color: Colors.black, fontWeight: FontWeight.bold, height: 1.1),
 												textAlign: TextAlign.center,
 												maxLines: 2,
 												overflow: TextOverflow.ellipsis,
@@ -754,12 +785,12 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 							mainAxisAlignment: MainAxisAlignment.center,
 							crossAxisAlignment: CrossAxisAlignment.start,
 							children: [
-								const Text('Firmado digitalmente por:', style: estiloNormal),
-								Text(widget.nombreFirmante, style: estiloNormal),
+								Text('Firmado digitalmente por:', style: estiloNormal),
+								Text(nombreMostrar, style: estiloNormal),
 								if (_cargoSeleccionado != null && _cargoSeleccionado!.isNotEmpty)
 									Text(_cargoSeleccionado!, style: estiloNormal),
-								Text('FIR (DNI ${widget.dniFirmante}) hard', style: estiloNormal),
-								Text('F: $fechaStr | Folios: $_totalPaginas', style: estiloNormal), 
+								Text('FIR (DNI $dniMostrar) hard', style: estiloNormal),
+								Text('F: $fechaStr | Folios: $_totalPaginas', style: estiloNormal),
 								Text('Motivo: $_motivoSeleccionado', style: estiloNormal),
 							],
 						),
@@ -781,13 +812,11 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			child: Stack(
 				alignment: Alignment.center,
 				children: [
-					// Icono de arrastre sutil en la esquina superior derecha
 					Positioned(
 						top: 2,
 						right: 2,
 						child: Icon(Icons.drag_indicator, size: 14, color: context.textGrey.withValues(alpha: 0.5)),
 					),
-					// El número centrado
 					Center(
 						child: Text(
 							_correlativoCtrl.text,
@@ -873,7 +902,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 					),
 					Expanded(
 						child: ReorderableListView.builder(
-							buildDefaultDragHandles: false, 
+							buildDefaultDragHandles: false,
 							itemCount: _referenciales.length,
 							onReorder: (oldIndex, newIndex) {
 								setState(() {
@@ -957,7 +986,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													},
 													pageOverlaysBuilder: (context, pageRect, page) {
 														final List<Widget> overlays = [];
-														
+
 														if (_posicionPorcentual != null && page.pageNumber == _paginaFirma) {
 															final escala = pageRect.width / page.width;
 															overlays.add(
@@ -1011,7 +1040,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																),
 															);
 														}
-														
+
 														return overlays;
 													},
 												),
@@ -1049,7 +1078,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																		color: context.textDark,
 																		tooltip: 'Ir al inicio',
 																	),
-																	
 																	IconButton(
 																		onPressed: _paginaFirma > 1 ? () => _cambiarPagina(-1) : null,
 																		icon: const Icon(Icons.chevron_left_rounded, size: 20),
@@ -1057,7 +1085,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																		constraints: const BoxConstraints(minWidth: 32),
 																		color: context.textDark,
 																	),
-
 																	Padding(
 																		padding: const EdgeInsets.symmetric(horizontal: 8),
 																		child: Row(
@@ -1091,7 +1118,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																			],
 																		),
 																	),
-
 																	IconButton(
 																		onPressed: _paginaFirma < _totalPaginas ? () => _cambiarPagina(1) : null,
 																		icon: const Icon(Icons.chevron_right_rounded, size: 20),
@@ -1099,7 +1125,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																		constraints: const BoxConstraints(minWidth: 32),
 																		color: context.textDark,
 																	),
-
 																	IconButton(
 																		onPressed: _paginaFirma < _totalPaginas ? () {
 																			setState(() {
@@ -1196,9 +1221,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												Text('Firma del documento', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: context.textDark)),
 												const SizedBox(height: 8),
 												Text('Elige cómo deseas colocar tu firma antes de firmar el documento.', style: TextStyle(fontSize: 14, color: context.textGrey)),
-												
+
 												const SizedBox(height: 24),
-												
+
 												Container(
 													padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
 													decoration: BoxDecoration(
@@ -1226,7 +1251,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 														],
 													),
 												),
-												
+
 												const SizedBox(height: 16),
 												Text(_esModoVistoBueno ? 'Motivo de visto bueno' : 'Motivo de firma', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: context.textDark)),
 												const SizedBox(height: 4),
@@ -1240,10 +1265,10 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													items: (_esModoVistoBueno ? _motivosVbDisponibles : _motivosFirmaDisponibles)
 															.map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 12))))
 															.toList(),
-													onChanged: (val) { 
+													onChanged: (val) {
 														if (val != null) {
 															setState(() => _motivoSeleccionado = val);
-														} 
+														}
 													},
 												),
 
@@ -1279,7 +1304,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													),
 													const SizedBox(height: 24),
 												],
-												
+
 												Center(
 													child: Draggable<Uint8List>(
 														data: widget.imagenFirmaBytes,
@@ -1302,7 +1327,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 												const SizedBox(height: 16),
 
-												// SWITCH PARA FOLIAR (AHORA SIEMPRE VISIBLE)
 												Container(
 													padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
 													decoration: BoxDecoration(
@@ -1329,7 +1353,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													),
 												),
 
-												// BLOQUE DEL CORRELATIVO (AHORA SIEMPRE VISIBLE)
 												if (!_documentoYaFirmado) ...[
 													const SizedBox(height: 16),
 													Container(
@@ -1379,7 +1402,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																	],
 																),
 																const SizedBox(height: 8),
-																
+
 																if (_correlativoCtrl.text.isNotEmpty)
 																	Center(
 																		child: Draggable<String>(
@@ -1391,7 +1414,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																		),
 																	),
 																const SizedBox(height: 8),
-																
+
 																TextField(
 																	controller: _correlativoCtrl,
 																	maxLength: 5,
@@ -1423,7 +1446,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										),
 									),
 								),
-								
+
 								Container(
 									padding: const EdgeInsets.all(24),
 									decoration: BoxDecoration(
@@ -1433,7 +1456,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										mainAxisSize: MainAxisSize.min,
 										children: [
 											ElevatedButton(
-												onPressed: _procesando || _posicionPorcentual == null ? null : _confirmar,
+												onPressed: (_procesando || _posicionPorcentual == null || (!_esModoVistoBueno && !_hardwareDisponible))
+														? null
+														: _confirmar,
 												style: ElevatedButton.styleFrom(
 													backgroundColor: context.primaryPurple,
 													foregroundColor: Colors.white,
