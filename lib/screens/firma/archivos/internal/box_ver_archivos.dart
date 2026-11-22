@@ -286,6 +286,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 						imagenVistoBuenoBytes: dataVB.buffer.asUint8List(),
 						nombreFirmante: titular!.nombre,
 						dniFirmante: titular.dni,
+						rutaArchivoOriginal: archivo.ruta, // <-- AÑADIDO
 					),
 				),
 			);

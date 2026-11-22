@@ -1,11 +1,15 @@
+import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:firmador_geresa/assets/tools/files_manag/folder_path_nxc.dart';
 import 'package:firmador_geresa/data/motivo_firma.dart';
+import 'package:firmador_geresa/data/rutas_carpetas_docs.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/boton_zoom.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/correlativo_visual.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/documento_referencial.dart';
+import 'package:firmador_geresa/screens/firma/firmar/editor/qr_visual.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/sello_firma_visual.dart';
+import 'package:firmador_geresa/services/anexos_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -18,7 +22,8 @@ import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart';
 import 'package:firmador_geresa/services/api_service.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/detector_dnie_service.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/config_sello_firma.dart';
-
+import 'package:path/path.dart' as p;
+import 'package:qr_flutter/qr_flutter.dart';
 
 enum PosicionFirma { arribaIzquierda, arribaCentro, arribaDerecha, abajoIzquierda, abajoCentro, abajoDerecha }
 
@@ -29,6 +34,7 @@ class EditorFirmaModal extends StatefulWidget {
 	final Uint8List imagenVistoBuenoBytes;
 	final String nombreFirmante;
 	final String dniFirmante;
+	final String? rutaArchivoOriginal; // <-- NUEVO PARÁMETRO
 
 	const EditorFirmaModal({
 		super.key,
@@ -38,6 +44,7 @@ class EditorFirmaModal extends StatefulWidget {
 		required this.imagenVistoBuenoBytes,
 		required this.nombreFirmante,
 		required this.dniFirmante,
+		this.rutaArchivoOriginal, // <-- NUEVO
 	});
 
 	@override
@@ -48,6 +55,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	final PdfViewerController _pdfController = PdfViewerController();
 	final GlobalKey _stackKey = GlobalKey();
 	final GlobalKey _selloKey = GlobalKey();
+	final GlobalKey _qrKey = GlobalKey();
 
 	final TextEditingController _paginaCtrl = TextEditingController(text: '1');
 	final TextEditingController _correlativoCtrl = TextEditingController(text: '');
@@ -89,6 +97,10 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	List<String> _motivosVbDisponibles = [];
 	List<String> _cargosDisponibles = [];
 	String _direccionOficina = '';
+
+	String? _urlAnexos;
+	Offset? _posicionQr;
+	bool _cargandoAnexos = false;
 
 	@override
 	void initState() {
@@ -293,6 +305,44 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		});
 	}
 
+	Future<void> _agregarAnexos() async {
+		if (_documentoYaFirmado) return;
+
+		setState(() => _cargandoAnexos = true);
+		try {
+			final result = await FilePicker.platform.pickFiles(allowMultiple: true);
+			if (result == null) return;
+
+			final archivos = result.paths.map((path) => File(path!)).toList();
+			
+			final rutaBase = obtenerRutaNextcloud();
+			final carpetaDestino = _esModoVistoBueno ? '$rutaBase$proyectados' : '$rutaBase$firmados';
+
+			// Usamos la ruta original si está disponible, sino asumimos la ruta de destino.
+			final rutaPdf = widget.rutaArchivoOriginal ?? p.join(carpetaDestino, widget.nombreArchivo);
+
+			final url = await AnexosService.procesarAnexos(
+				rutaCarpetaDestino: carpetaDestino,
+				nombreArchivoOriginal: widget.nombreArchivo,
+				rutaPdfOriginal: rutaPdf,
+				archivosAnexos: archivos,
+			);
+
+			if (url != null) {
+				setState(() {
+					_urlAnexos = url;
+					_posicionQr = const Offset(0.1, 0.1);
+				});
+			} else {
+				ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al generar enlace de anexos')));
+			}
+		} catch (e) {
+			ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+		} finally {
+			setState(() => _cargandoAnexos = false);
+		}
+	}
+
 	Offset _limitar(Offset p, int pagina) {
 		if (_tamanos.isEmpty) return p;
 		final s = _tamanos[pagina - 1];
@@ -311,6 +361,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		return Offset(p.dx.clamp(0.0, maxX), p.dy.clamp(0.0, maxY));
 	}
 
+	Offset _limitarQr(Offset p, int pagina) {
+		if (_tamanos.isEmpty) return p;
+		final s = _tamanos[pagina - 1];
+		final maxX = (1 - (100 / s.width)).clamp(0.0, 1.0);
+		final maxY = (1 - (60 / s.height)).clamp(0.0, 1.0);
+		return Offset(p.dx.clamp(0.0, maxX), p.dy.clamp(0.0, maxY));
+	}
+
 	void _irAPagina(int pagina) {
 		if (!_pdfController.isReady) return;
 		_pdfController.goToPage(pageNumber: pagina, anchor: PdfPageAnchor.all);
@@ -324,6 +382,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			_paginaCtrl.text = nueva.toString();
 			if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, nueva);
 			if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, nueva);
+			if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, nueva);
 		});
 		_irAPagina(nueva);
 	}
@@ -336,6 +395,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				_paginaFirma = num;
 				if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, num);
 				if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, num);
+				if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, num);
 			});
 			_irAPagina(num);
 		} else {
@@ -442,9 +502,42 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		});
 	}
 
+	void _alSoltarQr(DragTargetDetails<String> details) {
+		if (!_pdfController.isReady || _tamanos.isEmpty) return;
+		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+		if (box == null) return;
+		final centroGlobal = details.offset + const Offset(50, 30);
+		final local = box.globalToLocal(centroGlobal);
+		final inversa = Matrix4.inverted(_pdfController.value);
+		final doc = MatrixUtils.transformPoint(inversa, local);
+		final layouts = _pdfController.layout.pageLayouts;
+		int idx = 0;
+		double mejor = double.infinity;
+		for (int i = 0; i < layouts.length; i++) {
+			final r = layouts[i];
+			final dx = math.max(math.max(r.left - doc.dx, 0.0), doc.dx - r.right);
+			final dy = math.max(math.max(r.top - doc.dy, 0.0), doc.dy - r.bottom);
+			final d = dx * dx + dy * dy;
+			if (d < mejor) { mejor = d; idx = i; }
+		}
+		final rect = layouts[idx];
+		final size = _tamanos[idx];
+		final cx = (doc.dx - rect.left) / rect.width;
+		final cy = (doc.dy - rect.top) / rect.height;
+		setState(() {
+			_paginaFirma = idx + 1;
+			_paginaCtrl.text = (idx + 1).toString();
+			_posicionQr = _limitarQr(Offset(cx - (100 / size.width) / 2, cy - (60 / size.height) / 2), idx + 1);
+		});
+	}
+
 	Future<void> _confirmar() async {
 		if (_posicionPorcentual == null) return;
 		if (!_esModoVistoBueno && !_hardwareDisponible) return;
+		if (_urlAnexos != null && _posicionQr == null) {
+			ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Debes arrastrar el QR de anexos al documento antes de firmar.')));
+			return;
+		}
 
 		setState(() => _procesando = true);
 		_detector.pausar();
@@ -469,7 +562,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			Uint8List documentoParaFirmar = _documentoUnido;
 
 			if (!_documentoYaFirmado) {
-				if ((_foliarDocumento && !yaFirmado) || _posicionCorrelativo != null) {
+				if ((_foliarDocumento && !yaFirmado) || _posicionCorrelativo != null || _posicionQr != null) {
 					final docFoliar = sf.PdfDocument(inputBytes: documentoParaFirmar);
 					final int total = docFoliar.pages.count;
 
@@ -501,6 +594,24 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 						final double xFinal = centroX - (sizeTexto.width / 2);
 						final double yBaseline = centroY - (capHeightPts / 2);
 						page.graphics.drawString(texto, fuenteCorr, brush: negroCorr, bounds: Rect.fromLTWH(xFinal, yBaseline, 0, 0));
+					}
+					
+					if (_posicionQr != null && _urlAnexos != null) {
+						final page = docFoliar.pages[_paginaFirma - 1];
+						final pos = _posicionQr!;
+						final xBox = pos.dx * page.size.width;
+						final yBox = pos.dy * page.size.height;
+						
+						final boundaryQr = _qrKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+						if (boundaryQr != null) {
+							final qrImageCaptured = await boundaryQr.toImage(pixelRatio: 3.0);
+							final qrBytes = (await qrImageCaptured.toByteData(format: ui.ImageByteFormat.png))?.buffer.asUint8List();
+							
+							if (qrBytes != null) {
+								final bitmap = sf.PdfBitmap(qrBytes);
+								page.graphics.drawImage(bitmap, Rect.fromLTWH(xBox, yBox, 100, 60));
+							}
+						}
 					}
 
 					final foliadoBytes = await docFoliar.save();
@@ -585,6 +696,25 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			),
 		);
 
+		final qrFantasma = _urlAnexos != null ? Positioned(
+			left: -2000,
+			child: Material(
+				color: Colors.transparent,
+				child: RepaintBoundary(
+					key: _qrKey,
+					child: SizedBox(
+						width: 100,
+						height: 60,
+						child: QrImageView(
+							data: _urlAnexos!,
+							version: QrVersions.auto,
+							size: 60,
+						),
+					),
+				),
+			),
+		) : const SizedBox.shrink();
+
 		return Scaffold(
 			backgroundColor: context.backgroundLight,
 			appBar: AppBar(title: const Text('Firma del documento'), elevation: 0, backgroundColor: context.surfaceWhite, foregroundColor: context.textDark),
@@ -627,6 +757,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 															_tamanos = document.pages.map((p) => Size(p.width, p.height)).toList();
 															if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _paginaFirma);
 															if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, _paginaFirma);
+															if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, _paginaFirma);
 														});
 													},
 													pageOverlaysBuilder: (context, pageRect, page) {
@@ -705,11 +836,39 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 															);
 														}
 
+														if (_urlAnexos != null && _posicionQr != null && page.pageNumber == _paginaFirma) {
+															final escala = pageRect.width / page.width;
+															overlays.add(
+																Positioned(
+																	left: _posicionQr!.dx * pageRect.width,
+																	top: _posicionQr!.dy * pageRect.height,
+																	width: 100 * escala,
+																	height: 60 * escala,
+																	child: GestureDetector(
+																		onPanUpdate: (details) {
+																			setState(() {
+																				final nuevo = Offset(_posicionQr!.dx + details.delta.dx / pageRect.width, _posicionQr!.dy + details.delta.dy / pageRect.height);
+																				_posicionQr = _limitarQr(nuevo, _paginaFirma);
+																			});
+																		},
+																		child: MouseRegion(
+																			cursor: SystemMouseCursors.grab,
+																			child: FittedBox(
+																				fit: BoxFit.fill,
+																				child: QrVisual(url: _urlAnexos!, resaltadoRojo: false),
+																			),
+																		),
+																	),
+																),
+															);
+														}
+
 														return overlays;
 													},
 												),
 											),
 										widgetFantasma,
+										qrFantasma,
 
 										if (_totalPaginas > 1)
 											Positioned(
@@ -733,6 +892,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																				_paginaCtrl.text = '1';
 																				if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, 1);
 																				if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, 1);
+																				if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, 1);
 																			});
 																			_irAPagina(1);
 																		} : null,
@@ -787,6 +947,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																				_paginaCtrl.text = _totalPaginas.toString();
 																				if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _totalPaginas);
 																				if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, _totalPaginas);
+																				if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, _totalPaginas);
 																			});
 																			_irAPagina(_totalPaginas);
 																		} : null,
@@ -821,6 +982,15 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 											),
 										),
 
+										Positioned.fill(
+											child: DragTarget<String>(
+												onAcceptWithDetails: _alSoltarQr,
+												builder: (context, candidateData, rejectedData) {
+													return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? Colors.black.withValues(alpha: 0.05) : Colors.transparent));
+												},
+											),
+										),
+
 										Positioned(
 											top: 12,
 											right: 12,
@@ -839,14 +1009,29 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 											left: 0,
 											right: 0,
 											child: Center(
-												child: FloatingActionButton(
-													onPressed: _procesando ? null : _agregarReferencial,
-													backgroundColor: context.primaryPurple,
-													foregroundColor: Colors.white,
-													tooltip: _procesando ? 'Verificando documento...' : 'Añadir documento referencial',
-													child: _procesando
-															? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-															: const Icon(Icons.attach_file_rounded),
+												child: Row(
+													mainAxisSize: MainAxisSize.min,
+													children: [
+														FloatingActionButton(
+															heroTag: 'btn_ref',
+															onPressed: _procesando ? null : _agregarReferencial,
+															backgroundColor: context.primaryPurple,
+															foregroundColor: Colors.white,
+															tooltip: _procesando ? 'Verificando documento...' : 'Añadir documento referencial',
+															child: _procesando
+																	? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+																	: const Icon(Icons.attach_file_rounded),
+														),
+														const SizedBox(width: 16),
+														FloatingActionButton(
+															heroTag: 'btn_anexos',
+															onPressed: (_procesando || _cargandoAnexos || _documentoYaFirmado) ? null : _agregarAnexos,
+															backgroundColor: context.primaryPurple,
+															foregroundColor: Colors.white,
+															tooltip: _documentoYaFirmado ? 'Documento ya firmado' : 'Añadir anexos',
+															child: _cargandoAnexos ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.cloud_upload_rounded),
+														),
+													],
 												),
 											),
 										),
@@ -1006,6 +1191,41 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 														),
 													),
 												],
+												if (_urlAnexos != null) ...[
+													const SizedBox(height: 16),
+													Container(
+														padding: const EdgeInsets.all(12),
+														decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
+														child: Column(
+															crossAxisAlignment: CrossAxisAlignment.start,
+															children: [
+																Text('Anexos en la Nube', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textDark)),
+																const SizedBox(height: 8),
+																Center(
+																	child: Draggable<String>(
+																		data: _urlAnexos!,
+																		dragAnchorStrategy: (draggable, context, position) => const Offset(50, 30),
+																		feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: QrVisual(url: _urlAnexos!, resaltadoRojo: false))),
+																		childWhenDragging: Opacity(opacity: 0.3, child: QrVisual(url: _urlAnexos!, resaltadoRojo: false)),
+																		child: QrVisual(
+																			url: _urlAnexos!,
+																			resaltadoRojo: _posicionQr == null,
+																		),
+																	),
+																),
+																if (_posicionQr == null)
+																	Padding(
+																		padding: const EdgeInsets.only(top: 8),
+																		child: Text(
+																			'Arrastra el QR al documento',
+																			style: TextStyle(color: context.errorRed, fontSize: 12),
+																			textAlign: TextAlign.center,
+																		),
+																	),
+															],
+														),
+													),
+												],
 											],
 										),
 									),
@@ -1017,7 +1237,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										mainAxisSize: MainAxisSize.min,
 										children: [
 											ElevatedButton(
-												onPressed: (_procesando || _posicionPorcentual == null || (!_esModoVistoBueno && !_hardwareDisponible)) ? null : _confirmar,
+												onPressed: (_procesando || _posicionPorcentual == null || (!_esModoVistoBueno && !_hardwareDisponible) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
 												style: ElevatedButton.styleFrom(backgroundColor: context.primaryPurple, foregroundColor: Colors.white, elevation: 0, minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill))),
 												child: _procesando
 														? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))

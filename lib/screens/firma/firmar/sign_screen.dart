@@ -68,8 +68,6 @@ class SignScreen extends StatelessWidget {
 				} catch (e) {
 					intentos++;
 					if (intentos >= maxIntentos) {
-						// No relanzamos: continuamos sin titular para permitir
-						// abrir el editor igual (modo VB siempre disponible).
 						titular = null;
 						break;
 					}
@@ -95,10 +93,9 @@ class SignScreen extends StatelessWidget {
 						nombreArchivo: nombreFinal,
 						imagenFirmaBytes: bytesNormal,
 						imagenVistoBuenoBytes: bytesVB,
-						// Si no hay titular, pasamos vacío y el editor se encarga
-						// de mostrar placeholders rojos y bloquear la firma.
 						nombreFirmante: titular?.nombre ?? '',
 						dniFirmante: titular?.dni ?? '',
+						rutaArchivoOriginal: path, // <-- AÑADIDO
 					),
 				),
 			);
@@ -126,7 +123,7 @@ class SignScreen extends StatelessWidget {
 				builder: (_) => PopupFirma(
 					pdfBytes: pdfProcesado,
 					nombreArchivo: nombreFinal,
-					rutaDestinoFinal: rutaDestino, // <-- SOLO RUTA FINAL
+					rutaDestinoFinal: rutaDestino,
 					esVistoBueno: !requiereFirma,
 					imagenSello: imgSello,
 					pagina: pagina,
