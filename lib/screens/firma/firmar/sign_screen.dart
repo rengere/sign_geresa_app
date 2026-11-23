@@ -104,6 +104,7 @@ class SignScreen extends StatelessWidget {
 
 			final pdfProcesado = resultadoEditor['pdfBytes'] as Uint8List;
 			final requiereFirma = resultadoEditor['requiereFirma'] as bool;
+			final anexosPendientes = (resultadoEditor['anexosPendientes'] as List?)?.cast<File>() ?? <File>[];
 			final obtrutaNxc = obtenerRutaNextcloud();
 
 			final imgSello = resultadoEditor['imagenSello'] as Uint8List?;
@@ -125,6 +126,7 @@ class SignScreen extends StatelessWidget {
 					nombreArchivo: nombreFinal,
 					rutaDestinoFinal: rutaDestino,
 					esVistoBueno: !requiereFirma,
+					anexosPendientes: anexosPendientes,
 					imagenSello: imgSello,
 					pagina: pagina,
 					x: x,

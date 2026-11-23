@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/assets/tools/files_manag/json_storage.dart'; 
 import '../../../services/api_service.dart';
+import 'package:firmador_geresa/services/anexos_service.dart';
 
 enum _EstadoDialogoFirma { pin, cargando, exito, error }
 
@@ -13,6 +14,7 @@ class PopupFirma extends StatefulWidget {
 	final String nombreArchivo;
 	final String? rutaDestinoFinal; // Ruta final (Firmados o Proyectados)
 	final bool esVistoBueno;
+	final List<File> anexosPendientes;
 
 	final Uint8List? imagenSello;
 	final int? pagina;
@@ -27,6 +29,7 @@ class PopupFirma extends StatefulWidget {
 		required this.nombreArchivo,
 		this.rutaDestinoFinal, // <-- Solo el destino
 		this.esVistoBueno = false,
+		this.anexosPendientes = const [],
 		this.imagenSello,
 		this.pagina,
 		this.x,
@@ -55,13 +58,27 @@ class _PopupFirmaState extends State<PopupFirma> {
 		if (widget.esVistoBueno) {
 			_estado = _EstadoDialogoFirma.exito;
 			_pdfFirmado = widget.pdfBytes; 
-			_guardarCopia(widget.pdfBytes); 
+			_guardarCopia(widget.pdfBytes).then((_) => _transferirAnexos()).catchError((Object e) {
+			debugPrint('[Anexos] Error al transferir: $e');
+		}); 
 		} else {
 			_estado = _EstadoDialogoFirma.pin;
 			WidgetsBinding.instance.addPostFrameCallback((_) {
 				if (mounted) _pinFocusNode.requestFocus();
 			});
 		}
+	}
+
+	Future<void> _transferirAnexos() async {
+		if (widget.anexosPendientes.isEmpty) return;
+		final destino = widget.rutaDestinoFinal;
+		if (destino == null || destino.isEmpty) throw StateError('No hay carpeta de destino para los anexos.');
+		await AnexosService.transferirPendientes(
+			rutaCarpetaDestino: destino,
+			nombreArchivoOriginal: widget.nombreArchivo,
+			archivosAnexos: widget.anexosPendientes,
+		);
+		debugPrint('[Anexos] Transferencia completada: ${widget.anexosPendientes.length} archivos');
 	}
 
 	// SOLO guarda la copia, no borra nada
@@ -99,6 +116,11 @@ class _PopupFirmaState extends State<PopupFirma> {
 			);
 			
 			await _guardarCopia(pdfFirmado);
+			try {
+				await _transferirAnexos();
+			} catch (e) {
+				debugPrint('[Anexos] La firma se completó, pero falló la transferencia: $e');
+			}
 
 			setState(() {
 				_pdfFirmado = pdfFirmado;

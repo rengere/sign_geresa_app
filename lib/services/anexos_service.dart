@@ -1,8 +1,270 @@
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:firmador_geresa/services/nextcloud_api_service.dart';
 
 class AnexosService {
+	static const String _raizNextcloudLocal =
+		'C:\\Users\\hailp\\Nextcloud3';
+
+	// ============================================================
+	// RUTA REMOTA DE NEXTCLOUD
+	// ============================================================
+
+	static String _obtenerRutaRemota(String rutaCarpetaLocal) {
+		final rutaAbsoluta = p.normalize(
+			p.absolute(rutaCarpetaLocal),
+		);
+
+		final raizAbsoluta = p.normalize(
+			p.absolute(_raizNextcloudLocal),
+		);
+
+		final rutaRelativa = p.relative(
+			rutaAbsoluta,
+			from: raizAbsoluta,
+		);
+
+		if (
+			rutaRelativa == '..' ||
+			p.isAbsolute(rutaRelativa) ||
+			rutaRelativa.startsWith('..${p.separator}')
+		) {
+			throw StateError(
+				'La carpeta de anexos está fuera de la raíz de Nextcloud: '
+				'$rutaCarpetaLocal',
+			);
+		}
+
+		final rutaRemota = rutaRelativa
+			.replaceAll('\\', '/')
+			.split('/')
+			.where((segmento) => segmento.isNotEmpty)
+			.join('/');
+
+		return '/$rutaRemota';
+	}
+
+	// ============================================================
+	// CREAR CARPETA Y OBTENER URL PARA EL QR
+	// ============================================================
+
+	static Future<String?> prepararCarpeta({
+		required String rutaCarpetaDestino,
+		required String nombreArchivoOriginal,
+	}) async {
+		try {
+			final nombreBase = p.basenameWithoutExtension(
+				nombreArchivoOriginal,
+			);
+
+			final carpetaLocal = Directory(
+				p.join(rutaCarpetaDestino, '@$nombreBase'),
+			);
+
+			await carpetaLocal.create(recursive: true);
+
+			final rutaRemota = _obtenerRutaRemota(
+				carpetaLocal.path,
+			);
+
+			debugPrint(
+				'[Anexos] Carpeta local: ${carpetaLocal.path}',
+			);
+
+			debugPrint(
+				'[Anexos] Ruta remota: $rutaRemota',
+			);
+
+			// ----------------------------------------------------
+			// INTENTAR CREAR LA CARPETA REMOTA
+			// ----------------------------------------------------
+
+			bool creada = false;
+
+			try {
+				creada = await NextcloudApiService.crearCarpeta(
+					rutaRemota,
+				);
+			} catch (e) {
+				debugPrint(
+					'[Anexos] Error al crear carpeta remota: $e',
+				);
+			}
+
+			if (!creada) {
+				debugPrint(
+					'[Anexos] No se confirmó la creación remota. '
+					'Se intentará obtener el enlace de una carpeta existente.',
+				);
+			}
+
+			// ----------------------------------------------------
+			// OBTENER URL PÚBLICA
+			// ----------------------------------------------------
+
+			final enlace = await NextcloudApiService
+				.generarEnlacePublico(rutaRemota);
+
+			if (enlace == null || enlace.trim().isEmpty) {
+				debugPrint(
+					'[Anexos] No se pudo obtener una URL pública.',
+				);
+
+				return null;
+			}
+
+			debugPrint(
+				'[Anexos] URL pública obtenida: $enlace',
+			);
+
+			// El editor utiliza esta URL para mostrar el QR.
+			return enlace;
+		} catch (e) {
+			debugPrint(
+				'[Anexos] Error preparando carpeta: $e',
+			);
+
+			return null;
+		}
+	}
+
+	// ============================================================
+	// TRANSFERENCIA DIFERIDA DE ANEXOS
+	// ============================================================
+
+	static Future<void> transferirPendientes({
+		required String rutaCarpetaDestino,
+		required String nombreArchivoOriginal,
+		required List<File> archivosAnexos,
+	}) async {
+		final nombreBase = p.basenameWithoutExtension(
+			nombreArchivoOriginal,
+		);
+
+		final carpeta = Directory(
+			p.join(rutaCarpetaDestino, '@$nombreBase'),
+		);
+
+		await carpeta.create(recursive: true);
+
+		int transferidos = 0;
+
+		for (final archivo in archivosAnexos) {
+			if (!await archivo.exists()) {
+				throw StateError(
+					'Anexo no encontrado: ${archivo.path}',
+				);
+			}
+
+			final nombreOriginal = p.basename(
+				archivo.path,
+			);
+
+			final extension = p.extension(
+				nombreOriginal,
+			);
+
+			final nombreSinExtension = p.basenameWithoutExtension(
+				nombreOriginal,
+			);
+
+			String nombreDestino = nombreOriginal;
+
+			String rutaDestino = p.join(
+				carpeta.path,
+				nombreDestino,
+			);
+
+			// ----------------------------------------------------
+			// COMPROBAR SI EL ARCHIVO YA ESTÁ EN DESTINO
+			// ----------------------------------------------------
+
+			final rutaOrigenNormalizada = p
+				.normalize(archivo.absolute.path)
+				.toLowerCase();
+
+			final rutaDestinoNormalizada = p
+				.normalize(File(rutaDestino).absolute.path)
+				.toLowerCase();
+
+			if (rutaOrigenNormalizada == rutaDestinoNormalizada) {
+				debugPrint(
+					'[Anexos] Archivo ya ubicado en destino: '
+					'$nombreOriginal',
+				);
+
+				transferidos++;
+				continue;
+			}
+
+			// ----------------------------------------------------
+			// EVITAR SOBRESCRIBIR ARCHIVOS
+			// ----------------------------------------------------
+
+			int correlativo = 2;
+
+			while (await File(rutaDestino).exists()) {
+				nombreDestino =
+					'${nombreSinExtension}_$correlativo$extension';
+
+				rutaDestino = p.join(
+					carpeta.path,
+					nombreDestino,
+				);
+
+				correlativo++;
+			}
+
+			// ----------------------------------------------------
+			// COPIAR ARCHIVO
+			// ----------------------------------------------------
+
+			final destino = await archivo.copy(
+				rutaDestino,
+			);
+
+			if (!await destino.exists()) {
+				throw StateError(
+					'No se pudo verificar la copia: $rutaDestino',
+				);
+			}
+
+			// ----------------------------------------------------
+			// VERIFICAR TAMAÑO
+			// ----------------------------------------------------
+
+			final tamanoOrigen = await archivo.length();
+
+			final tamanoDestino = await destino.length();
+
+			if (tamanoOrigen != tamanoDestino) {
+				throw StateError(
+					'El archivo copiado tiene un tamaño diferente: '
+					'$nombreDestino',
+				);
+			}
+
+			transferidos++;
+
+			debugPrint(
+				'[Anexos] Copiado '
+				'($transferidos/${archivosAnexos.length}): '
+				'${archivo.path} -> $rutaDestino',
+			);
+		}
+
+		debugPrint(
+			'[Anexos] Transferencia verificada: '
+			'$transferidos/${archivosAnexos.length} archivos',
+		);
+	}
+
+	// ============================================================
+	// PROCESAMIENTO ORIGINAL DE ANEXOS
+	// ============================================================
+
 	static Future<String?> procesarAnexos({
 		required String rutaCarpetaDestino,
 		required String nombreArchivoOriginal,
@@ -10,56 +272,61 @@ class AnexosService {
 		required List<File> archivosAnexos,
 	}) async {
 		try {
-			final nombreBase = p.basenameWithoutExtension(nombreArchivoOriginal);
-			final nombreCarpeta = '@$nombreBase';
-			final rutaCarpetaLocal = p.join(rutaCarpetaDestino, nombreCarpeta);
+			final nombreBase = p.basenameWithoutExtension(
+				nombreArchivoOriginal,
+			);
 
-			final carpeta = Directory(rutaCarpetaLocal);
-			if (!await carpeta.exists()) {
-				await carpeta.create(recursive: true);
-			}
+			final carpetaLocal = Directory(
+				p.join(rutaCarpetaDestino, '@$nombreBase'),
+			);
 
-			final archivoOriginal = File(rutaPdfOriginal);
+			await carpetaLocal.create(recursive: true);
+
+			// ----------------------------------------------------
+			// COPIAR DOCUMENTO ORIGINAL
+			// ----------------------------------------------------
+
+			final archivoOriginal = File(
+				rutaPdfOriginal,
+			);
+
 			if (!await archivoOriginal.exists()) {
-				throw Exception('El archivo original no existe en: $rutaPdfOriginal');
-			}
-			await archivoOriginal.copy(p.join(rutaCarpetaLocal, nombreArchivoOriginal));
-
-			for (final anexo in archivosAnexos) {
-				await anexo.copy(p.join(rutaCarpetaLocal, p.basename(anexo.path)));
+				throw StateError(
+					'El documento original no existe: '
+					'$rutaPdfOriginal',
+				);
 			}
 
-			// --- CÁLCULO DE LA RUTA REMOTA ---
-			// La raíz de Nextcloud local es: C:\Users\hailp\Nextcloud3
-			const String raizNextcloudLocal = 'C:\\Users\\hailp\\Nextcloud3';
-			
-			// Normalizamos las rutas
-			final rutaAbsolutaNormalizada = p.normalize(rutaCarpetaLocal);
-			final raizNormalizada = p.normalize(raizNextcloudLocal);
+			await archivoOriginal.copy(
+				p.join(
+					carpetaLocal.path,
+					nombreArchivoOriginal,
+				),
+			);
 
-			// Obtenemos la ruta relativa desde la raíz de Nextcloud
-			// Ejemplo: GERESA_FIRMA\GERENCIA GENERAL\...\Doc Firmados\@Fdsa
-			final rutaRelativaLocal = p.relative(rutaAbsolutaNormalizada, from: raizNormalizada);
+			// ----------------------------------------------------
+			// COPIAR ANEXOS
+			// ----------------------------------------------------
 
-			// Convertimos las barras de Windows (\) a barras de URL (/)
-			var rutaRemota = rutaRelativaLocal.replaceAll('\\', '/');
-			
-			// Aseguramos que empiece con '/'
-			if (!rutaRemota.startsWith('/')) {
-				rutaRemota = '/$rutaRemota';
-			}
+			await transferirPendientes(
+				rutaCarpetaDestino: rutaCarpetaDestino,
+				nombreArchivoOriginal: nombreArchivoOriginal,
+				archivosAnexos: archivosAnexos,
+			);
 
-			print('DEBUG ANEXOS - Ruta remota calculada: $rutaRemota');
+			// ----------------------------------------------------
+			// CREAR CARPETA COMPARTIDA Y OBTENER URL
+			// ----------------------------------------------------
 
-			// Crear la carpeta remota
-			await NextcloudApiService.crearCarpeta(rutaRemota);
-
-			// Generar el enlace
-			final enlace = await NextcloudApiService.generarEnlacePublico(rutaRemota);
-
-			return enlace;
+			return await prepararCarpeta(
+				rutaCarpetaDestino: rutaCarpetaDestino,
+				nombreArchivoOriginal: nombreArchivoOriginal,
+			);
 		} catch (e) {
-			print('Error en AnexosService: $e');
+			debugPrint(
+				'[Anexos] Error procesando anexos: $e',
+			);
+
 			return null;
 		}
 	}

@@ -6,7 +6,9 @@ import 'package:firmador_geresa/data/motivo_firma.dart';
 import 'package:firmador_geresa/data/rutas_carpetas_docs.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/boton_zoom.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/correlativo_visual.dart';
-import 'package:firmador_geresa/screens/firma/firmar/editor/documento_referencial.dart';
+import 'package:firmador_geresa/screens/firma/firmar/editor/documento_referencial.dart' show DocumentoReferencial;
+import 'package:firmador_geresa/screens/firma/firmar/editor/documentos_ref_slider.dart';
+import 'package:firmador_geresa/screens/firma/firmar/editor/anexos_slider.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/qr_visual.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/sello_firma_visual.dart';
 import 'package:firmador_geresa/services/anexos_service.dart';
@@ -24,6 +26,16 @@ import 'package:firmador_geresa/screens/firma/firmar/editor/detector_dnie_servic
 import 'package:firmador_geresa/screens/firma/firmar/editor/config_sello_firma.dart';
 import 'package:path/path.dart' as p;
 import 'package:qr_flutter/qr_flutter.dart';
+
+class _ArrastreCorrelativo {
+	final String valor;
+	const _ArrastreCorrelativo(this.valor);
+}
+
+class _ArrastreQr {
+	final String url;
+	const _ArrastreQr(this.url);
+}
 
 enum PosicionFirma { arribaIzquierda, arribaCentro, arribaDerecha, abajoIzquierda, abajoCentro, abajoDerecha }
 
@@ -51,7 +63,12 @@ class EditorFirmaModal extends StatefulWidget {
 	State<EditorFirmaModal> createState() => _EditorFirmaModalState();
 }
 
+enum _PanelLateral { ninguno, referenciales, anexos }
+
 class _EditorFirmaModalState extends State<EditorFirmaModal> {
+	_PanelLateral _panelLateral = _PanelLateral.ninguno;
+	final List<File> _anexosPendientes = [];
+	bool _preparandoEnlace = false;
 	final PdfViewerController _pdfController = PdfViewerController();
 	final GlobalKey _stackKey = GlobalKey();
 	final GlobalKey _selloKey = GlobalKey();
@@ -292,6 +309,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['pdf'], withData: true);
 		if (result != null && result.files.single.bytes != null) {
 			setState(() {
+				_panelLateral = _PanelLateral.referenciales;
 				_referenciales.add(DocumentoReferencial(id: DateTime.now().millisecondsSinceEpoch.toString(), nombre: result.files.single.name, bytes: result.files.single.bytes!));
 				_actualizarDocumentoUnido();
 			});
@@ -306,41 +324,62 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	Future<void> _agregarAnexos() async {
-		if (_documentoYaFirmado) return;
-
-		setState(() => _cargandoAnexos = true);
+		if (_documentoYaFirmado || _cargandoAnexos) return;
+		setState(() {
+			_cargandoAnexos = true;
+			_panelLateral = _PanelLateral.anexos;
+		});
 		try {
 			final result = await FilePicker.platform.pickFiles(allowMultiple: true);
 			if (result == null) return;
-
-			final archivos = result.paths.map((path) => File(path!)).toList();
-			
-			final rutaBase = obtenerRutaNextcloud();
-			final carpetaDestino = _esModoVistoBueno ? '$rutaBase$proyectados' : '$rutaBase$firmados';
-
-			// Usamos la ruta original si está disponible, sino asumimos la ruta de destino.
-			final rutaPdf = widget.rutaArchivoOriginal ?? p.join(carpetaDestino, widget.nombreArchivo);
-
-			final url = await AnexosService.procesarAnexos(
-				rutaCarpetaDestino: carpetaDestino,
-				nombreArchivoOriginal: widget.nombreArchivo,
-				rutaPdfOriginal: rutaPdf,
-				archivosAnexos: archivos,
-			);
-
-			if (url != null) {
-				setState(() {
-					_urlAnexos = url;
-					_posicionQr = const Offset(0.1, 0.1);
-				});
-			} else {
-				ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al generar enlace de anexos')));
+			final archivos = result.paths.whereType<String>().map((ruta) => File(ruta)).toList();
+			if (archivos.isEmpty) return;
+			for (final archivo in archivos) {
+				if (!await archivo.exists()) throw StateError('Archivo no encontrado: ${archivo.path}');
+			}
+			if (!mounted) return;
+			setState(() {
+				for (final archivo in archivos) {
+					if (!_anexosPendientes.any((existente) => existente.path == archivo.path)) {
+						_anexosPendientes.add(archivo);
+					}
+				}
+			});
+			if (_urlAnexos == null && !_preparandoEnlace) {
+				_preparandoEnlace = true;
+				try {
+					final rutaBase = obtenerRutaNextcloud();
+					final carpetaDestino = _esModoVistoBueno ? '$rutaBase$proyectados' : '$rutaBase$firmados';
+					final url = await AnexosService.prepararCarpeta(
+						rutaCarpetaDestino: carpetaDestino,
+						nombreArchivoOriginal: widget.nombreArchivo,
+					);
+					if (!mounted) return;
+					if (url == null) throw StateError('No se pudo generar el enlace público de anexos.');
+					setState(() {
+						_urlAnexos = url;
+						_posicionQr ??= const Offset(0.1, 0.1);
+					});
+				} finally {
+					_preparandoEnlace = false;
+				}
 			}
 		} catch (e) {
-			ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+			debugPrint('[Anexos] Error: $e');
+			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al añadir anexos: $e')));
 		} finally {
-			setState(() => _cargandoAnexos = false);
+			if (mounted) setState(() => _cargandoAnexos = false);
 		}
+	}
+
+	void _eliminarAnexo(String ruta) {
+		setState(() {
+			_anexosPendientes.removeWhere((archivo) => archivo.path == ruta);
+			if (_anexosPendientes.isEmpty) {
+				_urlAnexos = null;
+				_posicionQr = null;
+			}
+		});
 	}
 
 	Offset _limitar(Offset p, int pagina) {
@@ -473,7 +512,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		});
 	}
 
-	void _alSoltarCorrelativo(DragTargetDetails<String> details) {
+	void _alSoltarCorrelativo(DragTargetDetails<_ArrastreCorrelativo> details) {
 		if (!_pdfController.isReady || _tamanos.isEmpty) return;
 		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
 		if (box == null) return;
@@ -502,7 +541,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		});
 	}
 
-	void _alSoltarQr(DragTargetDetails<String> details) {
+	void _alSoltarQr(DragTargetDetails<_ArrastreQr> details) {
 		if (!_pdfController.isReady || _tamanos.isEmpty) return;
 		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
 		if (box == null) return;
@@ -533,6 +572,10 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 
 	Future<void> _confirmar() async {
 		if (_posicionPorcentual == null) return;
+		if (_anexosPendientes.isNotEmpty && _urlAnexos == null) {
+			ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo preparar el enlace de anexos. Vuelve a añadir los archivos.')));
+			return;
+		}
 		if (!_esModoVistoBueno && !_hardwareDisponible) return;
 		if (_urlAnexos != null && _posicionQr == null) {
 			ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Debes arrastrar el QR de anexos al documento antes de firmar.')));
@@ -634,7 +677,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				final List<int> resultado = await document.save();
 				document.dispose();
 				if (!mounted) return;
-				Navigator.of(context).pop({'pdfBytes': Uint8List.fromList(resultado), 'requiereFirma': false});
+				Navigator.of(context).pop({'pdfBytes': Uint8List.fromList(resultado), 'requiereFirma': false, 'anexosPendientes': List<File>.from(_anexosPendientes), 'urlAnexos': _urlAnexos});
 			} else {
 				final pos = _posicionPorcentual!;
 				final pageSize = _tamanos[_paginaFirma - 1];
@@ -646,6 +689,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				Navigator.of(context).pop({
 					'pdfBytes': documentoParaFirmar,
 					'requiereFirma': true,
+					'anexosPendientes': List<File>.from(_anexosPendientes),
+					'urlAnexos': _urlAnexos,
 					'imagenSello': pngBytes,
 					'pagina': _paginaFirma,
 					'x': xPuntos,
@@ -720,10 +765,11 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 			appBar: AppBar(title: const Text('Firma del documento'), elevation: 0, backgroundColor: context.surfaceWhite, foregroundColor: context.textDark),
 			body: Row(
 				children: [
-					if (_referenciales.isNotEmpty)
+					if (_panelLateral == _PanelLateral.referenciales && _referenciales.isNotEmpty)
 						DocumentosSidebar(
 							nombreArchivo: widget.nombreArchivo,
 							referenciales: _referenciales,
+							onCerrar: () => setState(() => _panelLateral = _PanelLateral.ninguno),
 							onEliminar: _eliminarReferencial,
 							onReorder: (oldIndex, newIndex) {
 								setState(() {
@@ -733,6 +779,15 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 									_actualizarDocumentoUnido();
 								});
 							},
+						),
+					if (_panelLateral == _PanelLateral.anexos)
+						AnexosSlider(
+							nombreArchivo: widget.nombreArchivo,
+							anexos: _anexosPendientes,
+							onEliminar: _eliminarAnexo,
+							onAgregar: _agregarAnexos,
+							onCerrar: () => setState(() => _panelLateral = _PanelLateral.ninguno),
+							ocupado: _cargandoAnexos,
 						),
 					Expanded(
 						child: Container(
@@ -974,7 +1029,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										),
 
 										Positioned.fill(
-											child: DragTarget<String>(
+											child: DragTarget<_ArrastreCorrelativo>(
 												onAcceptWithDetails: _alSoltarCorrelativo,
 												builder: (context, candidateData, rejectedData) {
 													return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? Colors.black.withValues(alpha: 0.05) : Colors.transparent));
@@ -983,7 +1038,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										),
 
 										Positioned.fill(
-											child: DragTarget<String>(
+											child: DragTarget<_ArrastreQr>(
 												onAcceptWithDetails: _alSoltarQr,
 												builder: (context, candidateData, rejectedData) {
 													return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? Colors.black.withValues(alpha: 0.05) : Colors.transparent));
@@ -1013,6 +1068,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													mainAxisSize: MainAxisSize.min,
 													children: [
 														FloatingActionButton(
+															// ======================================================
+															// BOTÓN DOCUMENTOS REFERENCIALES: NO COMENTAR AÚN
+															// ======================================================
 															heroTag: 'btn_ref',
 															onPressed: _procesando ? null : _agregarReferencial,
 															backgroundColor: context.primaryPurple,
@@ -1024,6 +1082,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 														),
 														const SizedBox(width: 16),
 														FloatingActionButton(
+																	// ======================================================
+															// BOTÓN ANEXOS: NO COMENTAR AÚN
+														// ======================================================
 															heroTag: 'btn_anexos',
 															onPressed: (_procesando || _cargandoAnexos || _documentoYaFirmado) ? null : _agregarAnexos,
 															backgroundColor: context.primaryPurple,
@@ -1170,8 +1231,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																const SizedBox(height: 8),
 																if (_correlativoCtrl.text.isNotEmpty)
 																	Center(
-																		child: Draggable<String>(
-																			data: _correlativoCtrl.text,
+																		child: Draggable<_ArrastreCorrelativo>(
+													data: _ArrastreCorrelativo(_correlativoCtrl.text),
 																			dragAnchorStrategy: (draggable, context, position) => const Offset(_anchoCorrelativo / 2, _altoCorrelativo / 2),
 																			feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: CorrelativoVisual(texto: _correlativoCtrl.text, fuente: _fuenteCorrelativo, ancho: _anchoCorrelativo, alto: _altoCorrelativo))),
 																			childWhenDragging: Opacity(opacity: 0.3, child: Icon(Icons.drag_indicator, color: context.textGrey)),
@@ -1202,8 +1263,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																Text('Anexos en la Nube', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textDark)),
 																const SizedBox(height: 8),
 																Center(
-																	child: Draggable<String>(
-																		data: _urlAnexos!,
+																	child: Draggable<_ArrastreQr>(
+													data: _ArrastreQr(_urlAnexos!),
 																		dragAnchorStrategy: (draggable, context, position) => const Offset(50, 30),
 																		feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: QrVisual(url: _urlAnexos!, resaltadoRojo: false))),
 																		childWhenDragging: Opacity(opacity: 0.3, child: QrVisual(url: _urlAnexos!, resaltadoRojo: false)),
@@ -1237,7 +1298,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										mainAxisSize: MainAxisSize.min,
 										children: [
 											ElevatedButton(
-												onPressed: (_procesando || _posicionPorcentual == null || (!_esModoVistoBueno && !_hardwareDisponible) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
+												onPressed: (_procesando || _posicionPorcentual == null || (!_esModoVistoBueno && !_hardwareDisponible) || (_anexosPendientes.isNotEmpty && _urlAnexos == null) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
 												style: ElevatedButton.styleFrom(backgroundColor: context.primaryPurple, foregroundColor: Colors.white, elevation: 0, minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill))),
 												child: _procesando
 														? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
