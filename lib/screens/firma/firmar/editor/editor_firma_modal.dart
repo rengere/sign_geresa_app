@@ -372,6 +372,15 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		}
 	}
 
+	void _reiniciarAnexos() {
+		if (_procesando || _cargandoAnexos || _preparandoEnlace) return;
+		setState(() {
+			_anexosPendientes.clear();
+			_urlAnexos = null;
+			_posicionQr = null;
+		});
+	}
+
 	void _eliminarAnexo(String ruta) {
 		setState(() {
 			_anexosPendientes.removeWhere((archivo) => archivo.path == ruta);
@@ -785,9 +794,10 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 							nombreArchivo: widget.nombreArchivo,
 							anexos: _anexosPendientes,
 							onEliminar: _eliminarAnexo,
+							onReiniciar: _reiniciarAnexos,
 							onAgregar: _agregarAnexos,
 							onCerrar: () => setState(() => _panelLateral = _PanelLateral.ninguno),
-							ocupado: _cargandoAnexos,
+							ocupado: _cargandoAnexos || _procesando || _preparandoEnlace,
 						),
 					Expanded(
 						child: Container(
@@ -1086,7 +1096,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 															// BOTÓN ANEXOS: NO COMENTAR AÚN
 														// ======================================================
 															heroTag: 'btn_anexos',
-															onPressed: (_procesando || _cargandoAnexos || _documentoYaFirmado) ? null : _agregarAnexos,
+															onPressed: (_procesando || _cargandoAnexos || _documentoYaFirmado) ? null : () => setState(() => _panelLateral = _PanelLateral.anexos),
 															backgroundColor: context.primaryPurple,
 															foregroundColor: Colors.white,
 															tooltip: _documentoYaFirmado ? 'Documento ya firmado' : 'Añadir anexos',
