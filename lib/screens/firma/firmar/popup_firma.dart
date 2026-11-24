@@ -149,19 +149,21 @@ class _PopupFirmaState extends State<PopupFirma> {
 	}
 
 	String _forzarNombreCorrecto(String rutaIngresada, {required String nombreFallback}) {
-		String nombre = rutaIngresada.split(Platform.pathSeparator).last;
-		if (nombre.toLowerCase().endsWith('.pdf')) nombre = nombre.substring(0, nombre.length - 4);
-		nombre = nombre.replaceAll(RegExp(r'\[.*?\]'), '').trim();
+		String nombre = rutaIngresada.split(Platform.pathSeparator).last.trim();
 		if (nombre.isEmpty) nombre = nombreFallback;
-		final sufijo = _getSufijoConfigurado();
-		return '$nombre [$sufijo].pdf';
+		if (nombre.toLowerCase().endsWith('.pdf')) {
+			nombre = nombre.substring(0, nombre.length - 4);
+		}
+		return '$nombre.pdf';
 	}
 
 	Future<void> _guardarComo() async {
 		if (_pdfFirmado == null) return;
-		final nombreBase = widget.nombreArchivo.toLowerCase().endsWith('.pdf') ? widget.nombreArchivo.substring(0, widget.nombreArchivo.length - 4) : widget.nombreArchivo;
+		final nombreBase = widget.nombreArchivo.toLowerCase().endsWith('.pdf')
+			? widget.nombreArchivo.substring(0, widget.nombreArchivo.length - 4)
+			: widget.nombreArchivo;
 		final sufijo = _getSufijoConfigurado();
-		final nombreSugerido = '${nombreBase} [$sufijo].pdf';
+		final nombreSugerido = '$nombreBase[$sufijo].pdf';
 
 		final rutaDestino = await FilePicker.platform.saveFile(
 			dialogTitle: 'Guardar documento',
@@ -173,8 +175,8 @@ class _PopupFirmaState extends State<PopupFirma> {
 		if (rutaDestino == null) return;
 
 		try {
-			final directorio = rutaDestino.substring(0, rutaDestino.lastIndexOf(Platform.pathSeparator));
-			final nombreFinal = _forzarNombreCorrecto(rutaDestino, nombreFallback: nombreBase);
+			final directorio = File(rutaDestino).parent.path;
+			final nombreFinal = _forzarNombreCorrecto(rutaDestino, nombreFallback: nombreSugerido);
 			final rutaFinal = '$directorio${Platform.pathSeparator}$nombreFinal';
 
 			await File(rutaFinal).writeAsBytes(_pdfFirmado!);

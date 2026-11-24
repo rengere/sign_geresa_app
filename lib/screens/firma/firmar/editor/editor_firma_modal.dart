@@ -86,6 +86,35 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	String _dniFirmante = '';
 
 	bool _esModoVistoBueno = false;
+	bool _vbTodas = false;
+	final Map<int, List<Offset>> _vbPosiciones = {};
+	Offset? _vbReferencia;
+	static const double _ladoVb = ConfigSelloFirma.ladoSelloVb;
+	bool get _hayVb => _vbTodas ? _vbReferencia != null : _vbPosiciones.values.any((lista) => lista.isNotEmpty);
+
+	Offset _limitarVb(Offset pos, int pagina) {
+		final size = _tamanos[pagina - 1];
+		return Offset(pos.dx.clamp(0.0, math.max(0.0, 1 - _ladoVb / size.width)).toDouble(), pos.dy.clamp(0.0, math.max(0.0, 1 - _ladoVb / size.height)).toDouble());
+	}
+
+	List<Offset> _vistosEnPagina(int pagina) {
+		if (_vbTodas) return _vbReferencia == null ? [] : [_limitarVb(_vbReferencia!, pagina)];
+		return _vbPosiciones[pagina] ?? [];
+	}
+
+	void _reiniciarVb() {
+		_vbPosiciones.clear();
+		_vbReferencia = null;
+	}
+
+	Widget _selloVb() => SelloFirmaVisual(
+		esModoVistoBueno: true, hardwareDisponible: _hardwareDisponible,
+		nombreFirmante: _nombreFirmante, dniFirmante: _dniFirmante,
+		cargoSeleccionado: _cargoSeleccionado ?? '', motivoSeleccionado: _motivoSeleccionado,
+		direccionOficina: _direccionOficina, totalPaginas: _totalPaginas,
+		imagenFirmaBytes: widget.imagenFirmaBytes, imagenVistoBuenoBytes: widget.imagenVistoBuenoBytes,
+		anchoFirma: _ladoVb, altoFirma: _ladoVb, ladoImagen: _lado,
+	);
 	bool _modoManual = true;
 	bool _procesando = false;
 	bool _foliarDocumento = false;
@@ -203,6 +232,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		}
 		setState(() {
 			_esModoVistoBueno = irAVistoBueno;
+			_vbTodas = false;
+			_reiniciarVb();
 			if (_esModoVistoBueno) {
 				if (!_motivosVbDisponibles.contains(_motivoSeleccionado)) {
 					_motivoSeleccionado = _motivosVbDisponibles.isNotEmpty ? _motivosVbDisponibles.first : 'Visto bueno';
@@ -532,7 +563,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		if (!_pdfController.isReady || _tamanos.isEmpty) return;
 		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
 		if (box == null) return;
-		final centroGlobal = details.offset + const Offset(_anchoFirma / 2, _altoFirma / 2);
+		final centroGlobal = details.offset + (_esModoVistoBueno ? const Offset(_ladoVb / 2, _ladoVb / 2) : const Offset(_anchoFirma / 2, _altoFirma / 2));
 		final local = box.globalToLocal(centroGlobal);
 		final inversa = Matrix4.inverted(_pdfController.value);
 		final doc = MatrixUtils.transformPoint(inversa, local);
@@ -553,7 +584,16 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		setState(() {
 			_paginaFirma = idx + 1;
 			_paginaCtrl.text = (idx + 1).toString();
-			_posicionPorcentual = _limitar(Offset(cx - (_anchoFirma / size.width) / 2, cy - (_altoFirma / size.height) / 2), idx + 1);
+			if (_esModoVistoBueno) {
+				final pos = _limitarVb(Offset(cx - _ladoVb / size.width / 2, cy - _ladoVb / size.height / 2), idx + 1);
+				if (_vbTodas) {
+					_vbReferencia = pos;
+				} else {
+					_vbPosiciones.putIfAbsent(idx + 1, () => []).add(pos);
+				}
+			} else {
+				_posicionPorcentual = _limitar(Offset(cx - (_anchoFirma / size.width) / 2, cy - (_altoFirma / size.height) / 2), idx + 1);
+			}
 		});
 	}
 
@@ -618,7 +658,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	Future<void> _confirmar() async {
 		if (_anexoSeleccionado != null) return;
 		if (_cargandoAnexos || _reinicioPendiente) return;
-		if (_posicionPorcentual == null) return;
+		if (_esModoVistoBueno ? !_hayVb : _posicionPorcentual == null) return;
 		if ((_sesionAnexos != null || _anexosPendientes.isNotEmpty) && _urlAnexos == null) {
 			ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo preparar el enlace de anexos. Vuelve a presionar el botón de nube.')));
 			return;
@@ -724,12 +764,12 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				if (decoded == null) throw Exception('No se pudo decodificar la imagen');
 				final bitmap = sf.PdfBitmap(img.encodePng(decoded));
 				final document = sf.PdfDocument(inputBytes: documentoParaFirmar);
-				final page = document.pages[_paginaFirma - 1];
-				final pos = _posicionPorcentual!;
-				final x = pos.dx * page.size.width;
-				final y = pos.dy * page.size.height;
-				final g = page.graphics;
-				g.drawImage(bitmap, Rect.fromLTWH(x, y, _anchoFirma, _altoFirma));
+				for (int numero = 1; numero <= document.pages.count; numero++) {
+					final page = document.pages[numero - 1];
+					for (final pos in _vistosEnPagina(numero)) {
+						page.graphics.drawImage(bitmap, Rect.fromLTWH(pos.dx * page.size.width, pos.dy * page.size.height, _ladoVb, _ladoVb));
+					}
+				}
 				final List<int> resultado = await document.save();
 				document.dispose();
 				if (!mounted) return;
@@ -775,9 +815,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				child: RepaintBoundary(
 					key: _selloKey,
 					child: SizedBox(
-						width: _anchoFirma,
-						height: _altoFirma,
-						child: SelloFirmaVisual(
+						width: _esModoVistoBueno ? _ladoVb : _anchoFirma,
+						height: _esModoVistoBueno ? _ladoVb : _altoFirma,
+						child: _esModoVistoBueno ? _selloVb() : SelloFirmaVisual(
 							esModoVistoBueno: _esModoVistoBueno,
 							hardwareDisponible: _hardwareDisponible,
 							nombreFirmante: _nombreFirmante,
@@ -877,7 +917,36 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 															pageOverlaysBuilder: (context, pageRect, page) {
 																final List<Widget> overlays = [];
 		
-																if (_posicionPorcentual != null && page.pageNumber == _paginaFirma) {
+																if (_esModoVistoBueno) {
+																	final posiciones = _vistosEnPagina(page.pageNumber);
+																	final lado = _ladoVb * pageRect.width / page.width;
+																	for (int i = 0; i < posiciones.length; i++) {
+																		final pos = posiciones[i];
+																		overlays.add(Positioned(
+																			left: pos.dx * pageRect.width,
+																			top: pos.dy * pageRect.height,
+																			width: lado, height: lado,
+																			child: Stack(children: [
+																				Positioned.fill(child: GestureDetector(
+																					onPanUpdate: _procesando ? null : (details) => setState(() {
+																						final actual = _vistosEnPagina(page.pageNumber)[i];
+																						final nuevo = _limitarVb(actual + Offset(details.delta.dx / pageRect.width, details.delta.dy / pageRect.height), page.pageNumber);
+																						if (_vbTodas) { _vbReferencia = nuevo; } else { _vbPosiciones[page.pageNumber]![i] = nuevo; }
+																					}),
+																					child: MouseRegion(cursor: SystemMouseCursors.grab, child: FittedBox(child: _selloVb())),
+																				)),
+																				Positioned(top: 0, right: 0, child: GestureDetector(
+																					onTap: _procesando ? null : () => setState(() {
+																						if (_vbTodas) { _vbReferencia = null; } else { _vbPosiciones[page.pageNumber]!.removeAt(i); }
+																					}),
+																					child: const MouseRegion(cursor: SystemMouseCursors.click, child: Icon(Icons.cancel, color: Colors.red, size: 14)),
+																				)),
+																			]),
+																		));
+																	}
+																}
+																
+																if (!_esModoVistoBueno && _posicionPorcentual != null && page.pageNumber == _paginaFirma) {
 																	final escala = pageRect.width / page.width;
 																	overlays.add(
 																		Positioned(
@@ -1254,15 +1323,15 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 												Center(
 													child: Draggable<Uint8List>(
 														data: widget.imagenFirmaBytes,
-														dragAnchorStrategy: (draggable, context, position) => const Offset(_anchoFirma / 2, _altoFirma / 2),
-														feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: SelloFirmaVisual(esModoVistoBueno: _esModoVistoBueno, hardwareDisponible: _hardwareDisponible, nombreFirmante: _nombreFirmante, dniFirmante: _dniFirmante, cargoSeleccionado: _cargoSeleccionado ?? '', motivoSeleccionado: _motivoSeleccionado, direccionOficina: _direccionOficina, totalPaginas: _totalPaginas, imagenFirmaBytes: widget.imagenFirmaBytes, imagenVistoBuenoBytes: widget.imagenVistoBuenoBytes, anchoFirma: _anchoFirma, altoFirma: _altoFirma, ladoImagen: _lado))),
-														childWhenDragging: Opacity(opacity: 0.3, child: Image.memory(widget.imagenFirmaBytes, width: 50, height: 50)),
+														dragAnchorStrategy: (draggable, context, position) => _esModoVistoBueno ? const Offset(_ladoVb / 2, _ladoVb / 2) : const Offset(_anchoFirma / 2, _altoFirma / 2),
+														feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: _esModoVistoBueno ? _selloVb() : SelloFirmaVisual(esModoVistoBueno: _esModoVistoBueno, hardwareDisponible: _hardwareDisponible, nombreFirmante: _nombreFirmante, dniFirmante: _dniFirmante, cargoSeleccionado: _cargoSeleccionado ?? '', motivoSeleccionado: _motivoSeleccionado, direccionOficina: _direccionOficina, totalPaginas: _totalPaginas, imagenFirmaBytes: widget.imagenFirmaBytes, imagenVistoBuenoBytes: widget.imagenVistoBuenoBytes, anchoFirma: _anchoFirma, altoFirma: _altoFirma, ladoImagen: _lado))),
+														childWhenDragging: Opacity(opacity: 0.3, child: Image.memory(_esModoVistoBueno ? widget.imagenVistoBuenoBytes : widget.imagenFirmaBytes, width: 50, height: 50)),
 														child: Container(
 															padding: const EdgeInsets.all(8),
 															decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
 															child: Column(
 																children: [
-																	Image.memory(widget.imagenFirmaBytes, width: 50, height: 50),
+																	Image.memory(_esModoVistoBueno ? widget.imagenVistoBuenoBytes : widget.imagenFirmaBytes, width: 50, height: 50),
 																	const SizedBox(height: 8),
 																	Text('Arrastra el sello hacia\nel documento', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: context.textGrey, fontWeight: FontWeight.w500)),
 																],
@@ -1271,6 +1340,19 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 													),
 												),
 												const SizedBox(height: 16),
+												if (_esModoVistoBueno) ...[
+													Container(
+														padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+														decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
+														child: Row(children: [
+															Icon(Icons.layers_outlined, size: 20, color: context.textDark),
+															const SizedBox(width: 8),
+															Expanded(child: Text('Visto bueno en todas las páginas', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: context.textDark))),
+															Switch(value: _vbTodas, activeColor: context.primaryPurple, onChanged: _procesando ? null : (val) => setState(() { _vbTodas = val; _reiniciarVb(); })),
+														]),
+													),
+													const SizedBox(height: 16),
+												],
 												Container(
 													padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
 													decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusMd), border: Border.all(color: context.borderColor)),
@@ -1383,7 +1465,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										mainAxisSize: MainAxisSize.min,
 										children: [
 											ElevatedButton(
-												onPressed: (_procesando || _posicionPorcentual == null || (!_esModoVistoBueno && !_hardwareDisponible) || ((_sesionAnexos != null || _anexosPendientes.isNotEmpty) && _urlAnexos == null) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
+												onPressed: (_procesando || (_esModoVistoBueno ? !_hayVb : _posicionPorcentual == null) || (!_esModoVistoBueno && !_hardwareDisponible) || ((_sesionAnexos != null || _anexosPendientes.isNotEmpty) && _urlAnexos == null) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
 												style: ElevatedButton.styleFrom(backgroundColor: context.primaryPurple, foregroundColor: Colors.white, elevation: 0, minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill))),
 												child: _procesando
 														? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
