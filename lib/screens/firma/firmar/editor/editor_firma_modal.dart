@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'visor_anexo.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:firmador_geresa/assets/tools/files_manag/folder_path_nxc.dart';
@@ -25,7 +26,6 @@ import 'package:firmador_geresa/services/api_service.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/detector_dnie_service.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/config_sello_firma.dart';
 import 'package:path/path.dart' as p;
-import 'package:qr_flutter/qr_flutter.dart';
 
 class _ArrastreCorrelativo {
 	final String valor;
@@ -67,7 +67,10 @@ enum _PanelLateral { ninguno, referenciales, anexos }
 
 class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	_PanelLateral _panelLateral = _PanelLateral.ninguno;
+	File? _anexoSeleccionado;
 	final List<File> _anexosPendientes = [];
+	SesionAnexos? _sesionAnexos;
+	bool _reinicioPendiente = false;
 	bool _preparandoEnlace = false;
 	final PdfViewerController _pdfController = PdfViewerController();
 	final GlobalKey _stackKey = GlobalKey();
@@ -194,6 +197,10 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	void _alternarModo(bool irAVistoBueno) {
+		if (_cargandoAnexos || _sesionAnexos != null) {
+			ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reinicia los anexos antes de cambiar el modo.')));
+			return;
+		}
 		setState(() {
 			_esModoVistoBueno = irAVistoBueno;
 			if (_esModoVistoBueno) {
@@ -323,37 +330,20 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		});
 	}
 
-	Future<void> _agregarAnexos() async {
-		if (_documentoYaFirmado || _cargandoAnexos) return;
-		setState(() {
-			_cargandoAnexos = true;
-			_panelLateral = _PanelLateral.anexos;
-		});
+	Future<void> _abrirAnexos() async {
+		if (_procesando || _documentoYaFirmado || _cargandoAnexos) return;
+		setState(() => _panelLateral = _PanelLateral.anexos);
+		if (_reinicioPendiente || _urlAnexos != null) return;
+		setState(() => _cargandoAnexos = true);
 		try {
-			final result = await FilePicker.platform.pickFiles(allowMultiple: true);
-			if (result == null) return;
-			final archivos = result.paths.whereType<String>().map((ruta) => File(ruta)).toList();
-			if (archivos.isEmpty) return;
-			for (final archivo in archivos) {
-				if (!await archivo.exists()) throw StateError('Archivo no encontrado: ${archivo.path}');
-			}
-			if (!mounted) return;
-			setState(() {
-				for (final archivo in archivos) {
-					if (!_anexosPendientes.any((existente) => existente.path == archivo.path)) {
-						_anexosPendientes.add(archivo);
-					}
-				}
-			});
 			if (_urlAnexos == null && !_preparandoEnlace) {
 				_preparandoEnlace = true;
 				try {
 					final rutaBase = obtenerRutaNextcloud();
 					final carpetaDestino = _esModoVistoBueno ? '$rutaBase$proyectados' : '$rutaBase$firmados';
-					final url = await AnexosService.prepararCarpeta(
-						rutaCarpetaDestino: carpetaDestino,
-						nombreArchivoOriginal: widget.nombreArchivo,
-					);
+					_sesionAnexos ??= await AnexosService.reservarSesion(carpetaDestino, widget.nombreArchivo);
+					await AnexosService.prepararSesion(_sesionAnexos!);
+					final url = _sesionAnexos!.url;
 					if (!mounted) return;
 					if (url == null) throw StateError('No se pudo generar el enlace público de anexos.');
 					setState(() {
@@ -365,6 +355,41 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				}
 			}
 		} catch (e) {
+			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al crear enlace: $e')));
+		} finally {
+			if (mounted) setState(() => _cargandoAnexos = false);
+		}
+	}
+
+	Future<void> _agregarAnexos() async {
+		if (_documentoYaFirmado || _cargandoAnexos || _reinicioPendiente) return;
+		if (_urlAnexos == null) {
+			await _abrirAnexos();
+			if (!mounted || _urlAnexos == null) return;
+		}
+		setState(() {
+			_cargandoAnexos = true;
+			_panelLateral = _PanelLateral.anexos;
+		});
+		try {
+			final result = await FilePicker.platform.pickFiles(allowMultiple: true, type: FileType.custom, allowedExtensions: ['pdf']);
+			if (result == null) return;
+			final archivos = result.paths.whereType<String>().map((ruta) => File(ruta)).toList();
+			if (archivos.isEmpty) return;
+			for (final archivo in archivos) {
+				if (p.extension(archivo.path).toLowerCase() != '.pdf') throw StateError('Solo se admiten archivos PDF.');
+				if (!await archivo.exists()) throw StateError('Archivo no encontrado: ${archivo.path}');
+			}
+			if (!mounted) return;
+			setState(() {
+				for (final archivo in archivos) {
+					if (!_anexosPendientes.any((existente) => existente.path == archivo.path)) {
+						_anexosPendientes.add(archivo);
+					}
+				}
+			});
+
+		} catch (e) {
 			debugPrint('[Anexos] Error: $e');
 			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al añadir anexos: $e')));
 		} finally {
@@ -372,22 +397,33 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		}
 	}
 
-	void _reiniciarAnexos() {
+	Future<void> _reiniciarAnexos() async {
 		if (_procesando || _cargandoAnexos || _preparandoEnlace) return;
-		setState(() {
-			_anexosPendientes.clear();
-			_urlAnexos = null;
-			_posicionQr = null;
-		});
+		setState(() { _cargandoAnexos = true; _reinicioPendiente = true; });
+		try {
+			if (_sesionAnexos != null) await AnexosService.reiniciarSesion(_sesionAnexos!);
+			if (!mounted) return;
+			setState(() {
+				_sesionAnexos = null;
+				_anexosPendientes.clear();
+				_anexoSeleccionado = null;
+				_urlAnexos = null;
+				_posicionQr = null;
+				_reinicioPendiente = false;
+				_panelLateral = _PanelLateral.ninguno;
+			});
+		} catch (e) {
+			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se completó el reinicio. Reintenta: $e')));
+		} finally {
+			if (mounted) setState(() => _cargandoAnexos = false);
+		}
 	}
 
 	void _eliminarAnexo(String ruta) {
+		if (_cargandoAnexos || _reinicioPendiente) return;
 		setState(() {
 			_anexosPendientes.removeWhere((archivo) => archivo.path == ruta);
-			if (_anexosPendientes.isEmpty) {
-				_urlAnexos = null;
-				_posicionQr = null;
-			}
+			if (_anexoSeleccionado?.path == ruta) _anexoSeleccionado = null;
 		});
 	}
 
@@ -412,8 +448,8 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	Offset _limitarQr(Offset p, int pagina) {
 		if (_tamanos.isEmpty) return p;
 		final s = _tamanos[pagina - 1];
-		final maxX = (1 - (100 / s.width)).clamp(0.0, 1.0);
-		final maxY = (1 - (60 / s.height)).clamp(0.0, 1.0);
+		final maxX = (1 - (QrVisual.ancho / s.width)).clamp(0.0, 1.0);
+		final maxY = (1 - (QrVisual.alto / s.height)).clamp(0.0, 1.0);
 		return Offset(p.dx.clamp(0.0, maxX), p.dy.clamp(0.0, maxY));
 	}
 
@@ -554,7 +590,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		if (!_pdfController.isReady || _tamanos.isEmpty) return;
 		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
 		if (box == null) return;
-		final centroGlobal = details.offset + const Offset(50, 30);
+		final centroGlobal = details.offset + const Offset(QrVisual.ancho / 2, QrVisual.alto / 2);
 		final local = box.globalToLocal(centroGlobal);
 		final inversa = Matrix4.inverted(_pdfController.value);
 		final doc = MatrixUtils.transformPoint(inversa, local);
@@ -575,14 +611,16 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		setState(() {
 			_paginaFirma = idx + 1;
 			_paginaCtrl.text = (idx + 1).toString();
-			_posicionQr = _limitarQr(Offset(cx - (100 / size.width) / 2, cy - (60 / size.height) / 2), idx + 1);
+			_posicionQr = _limitarQr(Offset(cx - (QrVisual.ancho / size.width) / 2, cy - (QrVisual.alto / size.height) / 2), idx + 1);
 		});
 	}
 
 	Future<void> _confirmar() async {
+		if (_anexoSeleccionado != null) return;
+		if (_cargandoAnexos || _reinicioPendiente) return;
 		if (_posicionPorcentual == null) return;
-		if (_anexosPendientes.isNotEmpty && _urlAnexos == null) {
-			ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo preparar el enlace de anexos. Vuelve a añadir los archivos.')));
+		if ((_sesionAnexos != null || _anexosPendientes.isNotEmpty) && _urlAnexos == null) {
+			ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo preparar el enlace de anexos. Vuelve a presionar el botón de nube.')));
 			return;
 		}
 		if (!_esModoVistoBueno && !_hardwareDisponible) return;
@@ -655,15 +693,24 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 						final yBox = pos.dy * page.size.height;
 						
 						final boundaryQr = _qrKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-						if (boundaryQr != null) {
-							final qrImageCaptured = await boundaryQr.toImage(pixelRatio: 3.0);
-							final qrBytes = (await qrImageCaptured.toByteData(format: ui.ImageByteFormat.png))?.buffer.asUint8List();
-							
-							if (qrBytes != null) {
-								final bitmap = sf.PdfBitmap(qrBytes);
-								page.graphics.drawImage(bitmap, Rect.fromLTWH(xBox, yBox, 100, 60));
-							}
+						if (boundaryQr == null) throw StateError('No se pudo capturar el QR.');
+						final qrImageCaptured = await boundaryQr.toImage(pixelRatio: 6.0);
+						final datosQr = await qrImageCaptured.toByteData(format: ui.ImageByteFormat.png);
+						qrImageCaptured.dispose();
+						if (datosQr == null) throw StateError('No se pudo generar la imagen del QR.');
+						final url = _urlAnexos!;
+						final rectQr = Rect.fromLTWH(xBox + QrVisual.margen, yBox + QrVisual.alto - QrVisual.margen - QrVisual.ladoQr, QrVisual.ladoQr, QrVisual.ladoQr);
+						page.graphics.drawImage(sf.PdfBitmap(datosQr.buffer.asUint8List()), rectQr);
+						var fuente = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, QrVisual.fuenteUrl);
+						final anchoTexto = fuente.measureString(url).width;
+						if (anchoTexto > QrVisual.anchoUrl) {
+							fuente = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, QrVisual.fuenteUrl * QrVisual.anchoUrl / anchoTexto);
 						}
+						final medida = fuente.measureString(url);
+						final rectUrl = Rect.fromLTWH(xBox + QrVisual.xUrl, yBox + QrVisual.alto - QrVisual.margen - QrVisual.margenInferiorUrl - medida.height, medida.width, medida.height);
+						page.graphics.drawString(url, fuente, brush: sf.PdfSolidBrush(sf.PdfColor(0, 0, 0)), bounds: rectUrl);
+						page.annotations.add(sf.PdfUriAnnotation(bounds: rectUrl, uri: url));
+						page.annotations.add(sf.PdfUriAnnotation(bounds: rectQr, uri: url));
 					}
 
 					final foliadoBytes = await docFoliar.save();
@@ -686,7 +733,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				final List<int> resultado = await document.save();
 				document.dispose();
 				if (!mounted) return;
-				Navigator.of(context).pop({'pdfBytes': Uint8List.fromList(resultado), 'requiereFirma': false, 'anexosPendientes': List<File>.from(_anexosPendientes), 'urlAnexos': _urlAnexos});
+				Navigator.of(context).pop({'pdfBytes': Uint8List.fromList(resultado), 'requiereFirma': false, 'anexosPendientes': List<File>.from(_anexosPendientes), 'sesionAnexos': _sesionAnexos, 'urlAnexos': _urlAnexos});
 			} else {
 				final pos = _posicionPorcentual!;
 				final pageSize = _tamanos[_paginaFirma - 1];
@@ -699,7 +746,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 					'pdfBytes': documentoParaFirmar,
 					'requiereFirma': true,
 					'anexosPendientes': List<File>.from(_anexosPendientes),
-					'urlAnexos': _urlAnexos,
+					'sesionAnexos': _sesionAnexos, 'urlAnexos': _urlAnexos,
 					'imagenSello': pngBytes,
 					'pagina': _paginaFirma,
 					'x': xPuntos,
@@ -756,15 +803,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 				color: Colors.transparent,
 				child: RepaintBoundary(
 					key: _qrKey,
-					child: SizedBox(
-						width: 100,
-						height: 60,
-						child: QrImageView(
-							data: _urlAnexos!,
-							version: QrVersions.auto,
-							size: 60,
-						),
-					),
+					child: QrVisual.imagenQr(_urlAnexos!),
 				),
 			),
 		) : const SizedBox.shrink();
@@ -793,324 +832,360 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 						AnexosSlider(
 							nombreArchivo: widget.nombreArchivo,
 							anexos: _anexosPendientes,
+							rutaSeleccionada: _anexoSeleccionado?.path,
+							onSeleccionar: (archivo) => setState(() => _anexoSeleccionado = archivo),
 							onEliminar: _eliminarAnexo,
 							onReiniciar: _reiniciarAnexos,
+							puedeReiniciar: _sesionAnexos != null || _reinicioPendiente || _anexosPendientes.isNotEmpty,
 							onAgregar: _agregarAnexos,
-							onCerrar: () => setState(() => _panelLateral = _PanelLateral.ninguno),
+							onCerrar: () => setState(() {
+								_panelLateral = _PanelLateral.ninguno;
+								_anexoSeleccionado = null;
+							}),
 							ocupado: _cargandoAnexos || _procesando || _preparandoEnlace,
 						),
 					Expanded(
-						child: Container(
-							margin: const EdgeInsets.all(24),
-							decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusLg), border: Border.all(color: context.borderColor)),
-							child: ClipRRect(
-								borderRadius: BorderRadius.circular(context.radiusLg),
-								child: Stack(
-									key: _stackKey,
-									children: [
-										if (_documentoUnido.isNotEmpty)
-											PdfViewer.data(
-												key: ValueKey(_documentoUnido.length),
-												_documentoUnido,
-												sourceName: widget.nombreArchivo,
-												controller: _pdfController,
-												params: PdfViewerParams(
-													backgroundColor: context.surfaceGrey,
-													onViewerReady: (document, controller) {
-														setState(() {
-															_totalPaginas = document.pages.length;
-															_tamanos = document.pages.map((p) => Size(p.width, p.height)).toList();
-															if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _paginaFirma);
-															if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, _paginaFirma);
-															if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, _paginaFirma);
-														});
-													},
-													pageOverlaysBuilder: (context, pageRect, page) {
-														final List<Widget> overlays = [];
-
-														if (_posicionPorcentual != null && page.pageNumber == _paginaFirma) {
-															final escala = pageRect.width / page.width;
-															overlays.add(
-																Positioned(
-																	left: _posicionPorcentual!.dx * pageRect.width,
-																	top: _posicionPorcentual!.dy * pageRect.height,
-																	width: _anchoFirma * escala,
-																	height: _altoFirma * escala,
-																	child: GestureDetector(
-																		onPanUpdate: (details) {
-																			setState(() {
-																				final nuevo = Offset(_posicionPorcentual!.dx + details.delta.dx / pageRect.width, _posicionPorcentual!.dy + details.delta.dy / pageRect.height);
-																				_posicionPorcentual = _limitar(nuevo, _paginaFirma);
-																			});
-																		},
-																		child: MouseRegion(
-																			cursor: SystemMouseCursors.grab,
-																			child: FittedBox(
-																				fit: BoxFit.fill,
-																				child: SelloFirmaVisual(
-																					esModoVistoBueno: _esModoVistoBueno,
-																					hardwareDisponible: _hardwareDisponible,
-																					nombreFirmante: _nombreFirmante,
-																					dniFirmante: _dniFirmante,
-																					cargoSeleccionado: _cargoSeleccionado ?? '',
-																					motivoSeleccionado: _motivoSeleccionado,
-																					direccionOficina: _direccionOficina,
-																					totalPaginas: _totalPaginas,
-																					imagenFirmaBytes: widget.imagenFirmaBytes,
-																					imagenVistoBuenoBytes: widget.imagenVistoBuenoBytes,
-																					anchoFirma: _anchoFirma,
-																					altoFirma: _altoFirma,
-																					ladoImagen: _lado,
-																				),
-																			),
-																		),
-																	),
-																),
-															);
-														}
-
-														if (_correlativoCtrl.text.isNotEmpty && _posicionCorrelativo != null && page.pageNumber == _paginaFirma) {
-															final escala = pageRect.width / page.width;
-															overlays.add(
-																Positioned(
-																	left: _posicionCorrelativo!.dx * pageRect.width,
-																	top: _posicionCorrelativo!.dy * pageRect.height,
-																	width: _anchoCorrelativo * escala,
-																	height: _altoCorrelativo * escala,
-																	child: GestureDetector(
-																		onPanUpdate: (details) {
-																			setState(() {
-																				final nuevo = Offset(_posicionCorrelativo!.dx + details.delta.dx / pageRect.width, _posicionCorrelativo!.dy + details.delta.dy / pageRect.height);
-																				_posicionCorrelativo = _limitarCorrelativo(nuevo, _paginaFirma);
-																			});
-																		},
-																		child: MouseRegion(
-																			cursor: SystemMouseCursors.grab,
-																			child: FittedBox(
-																				fit: BoxFit.fill,
-																				child: CorrelativoVisual(
-																					texto: _correlativoCtrl.text,
-																					fuente: _fuenteCorrelativo,
-																					ancho: _anchoCorrelativo,
-																					alto: _altoCorrelativo,
-																				),
-																			),
-																		),
-																	),
-																),
-															);
-														}
-
-														if (_urlAnexos != null && _posicionQr != null && page.pageNumber == _paginaFirma) {
-															final escala = pageRect.width / page.width;
-															overlays.add(
-																Positioned(
-																	left: _posicionQr!.dx * pageRect.width,
-																	top: _posicionQr!.dy * pageRect.height,
-																	width: 100 * escala,
-																	height: 60 * escala,
-																	child: GestureDetector(
-																		onPanUpdate: (details) {
-																			setState(() {
-																				final nuevo = Offset(_posicionQr!.dx + details.delta.dx / pageRect.width, _posicionQr!.dy + details.delta.dy / pageRect.height);
-																				_posicionQr = _limitarQr(nuevo, _paginaFirma);
-																			});
-																		},
-																		child: MouseRegion(
-																			cursor: SystemMouseCursors.grab,
-																			child: FittedBox(
-																				fit: BoxFit.fill,
-																				child: QrVisual(url: _urlAnexos!, resaltadoRojo: false),
-																			),
-																		),
-																	),
-																),
-															);
-														}
-
-														return overlays;
-													},
-												),
-											),
-										widgetFantasma,
-										qrFantasma,
-
-										if (_totalPaginas > 1)
-											Positioned(
-												top: 12,
-												left: 0,
-												right: 0,
-												child: Center(
-													child: Material(
-														color: context.surfaceWhite,
-														elevation: 3,
-														borderRadius: BorderRadius.circular(context.radiusPill),
-														child: Padding(
-															padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-															child: Row(
-																mainAxisSize: MainAxisSize.min,
-																children: [
-																	IconButton(
-																		onPressed: _paginaFirma > 1 ? () {
-																			setState(() {
-																				_paginaFirma = 1;
-																				_paginaCtrl.text = '1';
-																				if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, 1);
-																				if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, 1);
-																				if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, 1);
-																			});
-																			_irAPagina(1);
-																		} : null,
-																		icon: const Icon(Icons.first_page_rounded, size: 20),
-																		padding: EdgeInsets.zero,
-																		constraints: const BoxConstraints(minWidth: 32),
-																		color: context.textDark,
-																		tooltip: 'Ir al inicio',
-																	),
-																	IconButton(
-																		onPressed: _paginaFirma > 1 ? () => _cambiarPagina(-1) : null,
-																		icon: const Icon(Icons.chevron_left_rounded, size: 20),
-																		padding: EdgeInsets.zero,
-																		constraints: const BoxConstraints(minWidth: 32),
-																		color: context.textDark,
-																	),
-																	Padding(
-																		padding: const EdgeInsets.symmetric(horizontal: 8),
-																		child: Row(
-																			children: [
-																				Text('Página', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: context.textGrey)),
-																				const SizedBox(width: 8),
-																				Container(
-																					width: 36,
-																					height: 28,
-																					decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusSm)),
-																					alignment: Alignment.center,
-																					child: TextField(
-																						controller: _paginaCtrl,
-																						textAlign: TextAlign.center,
-																						style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textDark),
-																						decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.zero, border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none),
-																						onSubmitted: _irAPaginaInput,
+						child: IndexedStack(
+							index: _anexoSeleccionado == null ? 0 : 1,
+							sizing: StackFit.expand,
+							children: [
+								Container(
+									margin: const EdgeInsets.all(24),
+									decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusLg), border: Border.all(color: context.borderColor)),
+									child: ClipRRect(
+										borderRadius: BorderRadius.circular(context.radiusLg),
+										child: Stack(
+											key: _stackKey,
+											children: [
+												if (_documentoUnido.isNotEmpty)
+													PdfViewer.data(
+														key: ValueKey(_documentoUnido.length),
+														_documentoUnido,
+														sourceName: widget.nombreArchivo,
+														controller: _pdfController,
+														params: PdfViewerParams(
+															backgroundColor: context.surfaceGrey,
+															onViewerReady: (document, controller) {
+																setState(() {
+																	_totalPaginas = document.pages.length;
+																	_tamanos = document.pages.map((p) => Size(p.width, p.height)).toList();
+																	if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _paginaFirma);
+																	if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, _paginaFirma);
+																	if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, _paginaFirma);
+																});
+															},
+															pageOverlaysBuilder: (context, pageRect, page) {
+																final List<Widget> overlays = [];
+		
+																if (_posicionPorcentual != null && page.pageNumber == _paginaFirma) {
+																	final escala = pageRect.width / page.width;
+																	overlays.add(
+																		Positioned(
+																			left: _posicionPorcentual!.dx * pageRect.width,
+																			top: _posicionPorcentual!.dy * pageRect.height,
+																			width: _anchoFirma * escala,
+																			height: _altoFirma * escala,
+																			child: GestureDetector(
+																				onPanUpdate: (details) {
+																					setState(() {
+																						final nuevo = Offset(_posicionPorcentual!.dx + details.delta.dx / pageRect.width, _posicionPorcentual!.dy + details.delta.dy / pageRect.height);
+																						_posicionPorcentual = _limitar(nuevo, _paginaFirma);
+																					});
+																				},
+																				child: MouseRegion(
+																					cursor: SystemMouseCursors.grab,
+																					child: FittedBox(
+																						fit: BoxFit.fill,
+																						child: SelloFirmaVisual(
+																							esModoVistoBueno: _esModoVistoBueno,
+																							hardwareDisponible: _hardwareDisponible,
+																							nombreFirmante: _nombreFirmante,
+																							dniFirmante: _dniFirmante,
+																							cargoSeleccionado: _cargoSeleccionado ?? '',
+																							motivoSeleccionado: _motivoSeleccionado,
+																							direccionOficina: _direccionOficina,
+																							totalPaginas: _totalPaginas,
+																							imagenFirmaBytes: widget.imagenFirmaBytes,
+																							imagenVistoBuenoBytes: widget.imagenVistoBuenoBytes,
+																							anchoFirma: _anchoFirma,
+																							altoFirma: _altoFirma,
+																							ladoImagen: _lado,
+																						),
 																					),
 																				),
-																				const SizedBox(width: 8),
-																				Text('de $_totalPaginas', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: context.textGrey)),
-																			],
+																			),
 																		),
+																	);
+																}
+		
+																if (_correlativoCtrl.text.isNotEmpty && _posicionCorrelativo != null && page.pageNumber == _paginaFirma) {
+																	final escala = pageRect.width / page.width;
+																	overlays.add(
+																		Positioned(
+																			left: _posicionCorrelativo!.dx * pageRect.width,
+																			top: _posicionCorrelativo!.dy * pageRect.height,
+																			width: _anchoCorrelativo * escala,
+																			height: _altoCorrelativo * escala,
+																			child: GestureDetector(
+																				onPanUpdate: (details) {
+																					setState(() {
+																						final nuevo = Offset(_posicionCorrelativo!.dx + details.delta.dx / pageRect.width, _posicionCorrelativo!.dy + details.delta.dy / pageRect.height);
+																						_posicionCorrelativo = _limitarCorrelativo(nuevo, _paginaFirma);
+																					});
+																				},
+																				child: MouseRegion(
+																					cursor: SystemMouseCursors.grab,
+																					child: FittedBox(
+																						fit: BoxFit.fill,
+																						child: CorrelativoVisual(
+																							texto: _correlativoCtrl.text,
+																							fuente: _fuenteCorrelativo,
+																							ancho: _anchoCorrelativo,
+																							alto: _altoCorrelativo,
+																						),
+																					),
+																				),
+																			),
+																		),
+																	);
+																}
+		
+																if (_urlAnexos != null && _posicionQr != null && page.pageNumber == _paginaFirma) {
+																	final escala = pageRect.width / page.width;
+																	overlays.add(
+																		Positioned(
+																			left: _posicionQr!.dx * pageRect.width,
+																			top: _posicionQr!.dy * pageRect.height,
+																			width: QrVisual.ancho * escala,
+																			height: QrVisual.alto * escala,
+																			child: GestureDetector(
+																				onPanUpdate: (details) {
+																					setState(() {
+																						final nuevo = Offset(_posicionQr!.dx + details.delta.dx / pageRect.width, _posicionQr!.dy + details.delta.dy / pageRect.height);
+																						_posicionQr = _limitarQr(nuevo, _paginaFirma);
+																					});
+																				},
+																				child: MouseRegion(
+																					cursor: SystemMouseCursors.grab,
+																					child: FittedBox(
+																						fit: BoxFit.contain,
+																						child: QrVisual(url: _urlAnexos!, resaltadoRojo: false),
+																					),
+																				),
+																			),
+																		),
+																	);
+																}
+		
+																return overlays;
+															},
+														),
+													),
+												widgetFantasma,
+												qrFantasma,
+		
+												if (_totalPaginas > 1)
+													Positioned(
+														top: 12,
+														left: 0,
+														right: 0,
+														child: Center(
+															child: Material(
+																color: context.surfaceWhite,
+																elevation: 3,
+																borderRadius: BorderRadius.circular(context.radiusPill),
+																child: Padding(
+																	padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+																	child: Row(
+																		mainAxisSize: MainAxisSize.min,
+																		children: [
+																			IconButton(
+																				onPressed: _paginaFirma > 1 ? () {
+																					setState(() {
+																						_paginaFirma = 1;
+																						_paginaCtrl.text = '1';
+																						if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, 1);
+																						if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, 1);
+																						if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, 1);
+																					});
+																					_irAPagina(1);
+																				} : null,
+																				icon: const Icon(Icons.first_page_rounded, size: 20),
+																				padding: EdgeInsets.zero,
+																				constraints: const BoxConstraints(minWidth: 32),
+																				color: context.textDark,
+																				tooltip: 'Ir al inicio',
+																			),
+																			IconButton(
+																				onPressed: _paginaFirma > 1 ? () => _cambiarPagina(-1) : null,
+																				icon: const Icon(Icons.chevron_left_rounded, size: 20),
+																				padding: EdgeInsets.zero,
+																				constraints: const BoxConstraints(minWidth: 32),
+																				color: context.textDark,
+																			),
+																			Padding(
+																				padding: const EdgeInsets.symmetric(horizontal: 8),
+																				child: Row(
+																					children: [
+																						Text('Página', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: context.textGrey)),
+																						const SizedBox(width: 8),
+																						Container(
+																							width: 36,
+																							height: 28,
+																							decoration: BoxDecoration(color: context.surfaceGrey, borderRadius: BorderRadius.circular(context.radiusSm)),
+																							alignment: Alignment.center,
+																							child: TextField(
+																								controller: _paginaCtrl,
+																								textAlign: TextAlign.center,
+																								style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: context.textDark),
+																								decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.zero, border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none),
+																								onSubmitted: _irAPaginaInput,
+																							),
+																						),
+																						const SizedBox(width: 8),
+																						Text('de $_totalPaginas', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: context.textGrey)),
+																					],
+																				),
+																			),
+																			IconButton(
+																				onPressed: _paginaFirma < _totalPaginas ? () => _cambiarPagina(1) : null,
+																				icon: const Icon(Icons.chevron_right_rounded, size: 20),
+																				padding: EdgeInsets.zero,
+																				constraints: const BoxConstraints(minWidth: 32),
+																				color: context.textDark,
+																			),
+																			IconButton(
+																				onPressed: _paginaFirma < _totalPaginas ? () {
+																					setState(() {
+																						_paginaFirma = _totalPaginas;
+																						_paginaCtrl.text = _totalPaginas.toString();
+																						if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _totalPaginas);
+																						if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, _totalPaginas);
+																						if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, _totalPaginas);
+																					});
+																					_irAPagina(_totalPaginas);
+																				} : null,
+																				icon: const Icon(Icons.last_page_rounded, size: 20),
+																				padding: EdgeInsets.zero,
+																				constraints: const BoxConstraints(minWidth: 32),
+																				color: context.textDark,
+																				tooltip: 'Ir al final',
+																			),
+																		],
 																	),
-																	IconButton(
-																		onPressed: _paginaFirma < _totalPaginas ? () => _cambiarPagina(1) : null,
-																		icon: const Icon(Icons.chevron_right_rounded, size: 20),
-																		padding: EdgeInsets.zero,
-																		constraints: const BoxConstraints(minWidth: 32),
-																		color: context.textDark,
-																	),
-																	IconButton(
-																		onPressed: _paginaFirma < _totalPaginas ? () {
-																			setState(() {
-																				_paginaFirma = _totalPaginas;
-																				_paginaCtrl.text = _totalPaginas.toString();
-																				if (_posicionPorcentual != null) _posicionPorcentual = _limitar(_posicionPorcentual!, _totalPaginas);
-																				if (_posicionCorrelativo != null) _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo!, _totalPaginas);
-																				if (_posicionQr != null) _posicionQr = _limitarQr(_posicionQr!, _totalPaginas);
-																			});
-																			_irAPagina(_totalPaginas);
-																		} : null,
-																		icon: const Icon(Icons.last_page_rounded, size: 20),
-																		padding: EdgeInsets.zero,
-																		constraints: const BoxConstraints(minWidth: 32),
-																		color: context.textDark,
-																		tooltip: 'Ir al final',
-																	),
-																],
+																),
 															),
 														),
 													),
+		
+												Positioned.fill(
+													child: DragTarget<Uint8List>(
+														onAcceptWithDetails: _alSoltar,
+														builder: (context, candidateData, rejectedData) {
+															return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? context.primaryPurple.withValues(alpha: 0.05) : Colors.transparent));
+														},
+													),
 												),
-											),
-
-										Positioned.fill(
-											child: DragTarget<Uint8List>(
-												onAcceptWithDetails: _alSoltar,
-												builder: (context, candidateData, rejectedData) {
-													return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? context.primaryPurple.withValues(alpha: 0.05) : Colors.transparent));
-												},
-											),
-										),
-
-										Positioned.fill(
-											child: DragTarget<_ArrastreCorrelativo>(
-												onAcceptWithDetails: _alSoltarCorrelativo,
-												builder: (context, candidateData, rejectedData) {
-													return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? Colors.black.withValues(alpha: 0.05) : Colors.transparent));
-												},
-											),
-										),
-
-										Positioned.fill(
-											child: DragTarget<_ArrastreQr>(
-												onAcceptWithDetails: _alSoltarQr,
-												builder: (context, candidateData, rejectedData) {
-													return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? Colors.black.withValues(alpha: 0.05) : Colors.transparent));
-												},
-											),
-										),
-
-										Positioned(
-											top: 12,
-											right: 12,
-											child: Column(
-												children: [
-													BotonZoom(icono: Icons.add_rounded, tooltip: 'Acercar', onTap: () { if (_pdfController.isReady) _pdfController.zoomUp(); }),
-													const SizedBox(height: 8),
-													BotonZoom(icono: Icons.remove_rounded, tooltip: 'Alejar', onTap: () { if (_pdfController.isReady) _pdfController.zoomDown(); }),
-													const SizedBox(height: 8),
-													BotonZoom(icono: Icons.fit_screen_rounded, tooltip: 'Ajustar página', onTap: () { _irAPagina(_pdfController.pageNumber ?? 1); }),
-												],
-											),
-										),
-										Positioned(
-											bottom: 24,
-											left: 0,
-											right: 0,
-											child: Center(
-												child: Row(
-													mainAxisSize: MainAxisSize.min,
-													children: [
-														FloatingActionButton(
-															// ======================================================
-															// BOTÓN DOCUMENTOS REFERENCIALES: NO COMENTAR AÚN
-															// ======================================================
-															heroTag: 'btn_ref',
-															onPressed: _procesando ? null : _agregarReferencial,
-															backgroundColor: context.primaryPurple,
-															foregroundColor: Colors.white,
-															tooltip: _procesando ? 'Verificando documento...' : 'Añadir documento referencial',
-															child: _procesando
-																	? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-																	: const Icon(Icons.attach_file_rounded),
-														),
-														const SizedBox(width: 16),
-														FloatingActionButton(
+		
+												Positioned.fill(
+													child: DragTarget<_ArrastreCorrelativo>(
+														onAcceptWithDetails: _alSoltarCorrelativo,
+														builder: (context, candidateData, rejectedData) {
+															return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? Colors.black.withValues(alpha: 0.05) : Colors.transparent));
+														},
+													),
+												),
+		
+												Positioned.fill(
+													child: DragTarget<_ArrastreQr>(
+														onAcceptWithDetails: _alSoltarQr,
+														builder: (context, candidateData, rejectedData) {
+															return IgnorePointer(child: Container(color: candidateData.isNotEmpty ? Colors.black.withValues(alpha: 0.05) : Colors.transparent));
+														},
+													),
+												),
+		
+												Positioned(
+													top: 12,
+													right: 12,
+													child: Column(
+														children: [
+															BotonZoom(icono: Icons.add_rounded, tooltip: 'Acercar', onTap: () { if (_pdfController.isReady) _pdfController.zoomUp(); }),
+															const SizedBox(height: 8),
+															BotonZoom(icono: Icons.remove_rounded, tooltip: 'Alejar', onTap: () { if (_pdfController.isReady) _pdfController.zoomDown(); }),
+															const SizedBox(height: 8),
+															BotonZoom(icono: Icons.fit_screen_rounded, tooltip: 'Ajustar página', onTap: () { _irAPagina(_pdfController.pageNumber ?? 1); }),
+														],
+													),
+												),
+												Positioned(
+													bottom: 24,
+													left: 0,
+													right: 0,
+													child: Center(
+														child: Row(
+															mainAxisSize: MainAxisSize.min,
+															children: [
+																FloatingActionButton(
 																	// ======================================================
-															// BOTÓN ANEXOS: NO COMENTAR AÚN
-														// ======================================================
-															heroTag: 'btn_anexos',
-															onPressed: (_procesando || _cargandoAnexos || _documentoYaFirmado) ? null : () => setState(() => _panelLateral = _PanelLateral.anexos),
-															backgroundColor: context.primaryPurple,
-															foregroundColor: Colors.white,
-															tooltip: _documentoYaFirmado ? 'Documento ya firmado' : 'Añadir anexos',
-															child: _cargandoAnexos ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.cloud_upload_rounded),
+																	// BOTÓN DOCUMENTOS REFERENCIALES: NO COMENTAR AÚN
+																	// ======================================================
+																	heroTag: 'btn_ref',
+																	onPressed: _procesando ? null : _agregarReferencial,
+																	backgroundColor: context.primaryPurple,
+																	foregroundColor: Colors.white,
+																	tooltip: _procesando ? 'Verificando documento...' : 'Añadir documento referencial',
+																	child: _procesando
+																			? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+																			: const Icon(Icons.attach_file_rounded),
+																),
+																const SizedBox(width: 16),
+																FloatingActionButton(
+																			// ======================================================
+																	// BOTÓN ANEXOS: NO COMENTAR AÚN
+																// ======================================================
+																	heroTag: 'btn_anexos',
+																	onPressed: (_procesando || _cargandoAnexos || _documentoYaFirmado) ? null : _abrirAnexos,
+																	backgroundColor: context.primaryPurple,
+																	foregroundColor: Colors.white,
+																	tooltip: _documentoYaFirmado ? 'Documento ya firmado' : 'Añadir anexos',
+																	child: _cargandoAnexos ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.cloud_upload_rounded),
+																),
+															],
 														),
-													],
+													),
 												),
-											),
+											],
 										),
-									],
+									),
 								),
-							),
+								if (_anexoSeleccionado != null)
+									VisorAnexo(key: ValueKey(_anexoSeleccionado!.path), archivo: _anexoSeleccionado!)
+								else
+									const SizedBox.shrink(),
+							],
 						),
 					),
+					if (_anexoSeleccionado != null)
+						Container(
+							width: 300,
+							color: context.surfaceWhite,
+							padding: const EdgeInsets.all(24),
+							child: Column(
+								crossAxisAlignment: CrossAxisAlignment.stretch,
+								children: [
+									const Icon(Icons.lock_outline, size: 36),
+									const SizedBox(height: 16),
+									const Text('Modo solo lectura', textAlign: TextAlign.center),
+									const SizedBox(height: 12),
+									const Text('Selecciona el documento principal para continuar con la firma.'),
+									const Spacer(),
+									const ElevatedButton(onPressed: null, child: Text('Confirmar firma')),
+									TextButton(onPressed: () => setState(() => _anexoSeleccionado = null), child: const Text('Volver al documento principal')),
+								],
+							),
+						)
+					else
 					Container(
 						width: 300,
 						decoration: BoxDecoration(color: context.surfaceWhite, border: Border(left: BorderSide(color: context.borderColor))),
@@ -1275,7 +1350,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																Center(
 																	child: Draggable<_ArrastreQr>(
 													data: _ArrastreQr(_urlAnexos!),
-																		dragAnchorStrategy: (draggable, context, position) => const Offset(50, 30),
+																		dragAnchorStrategy: (draggable, context, position) => const Offset(QrVisual.ancho / 2, QrVisual.alto / 2),
 																		feedback: Material(color: Colors.transparent, child: Opacity(opacity: 0.85, child: QrVisual(url: _urlAnexos!, resaltadoRojo: false))),
 																		childWhenDragging: Opacity(opacity: 0.3, child: QrVisual(url: _urlAnexos!, resaltadoRojo: false)),
 																		child: QrVisual(
@@ -1308,7 +1383,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										mainAxisSize: MainAxisSize.min,
 										children: [
 											ElevatedButton(
-												onPressed: (_procesando || _posicionPorcentual == null || (!_esModoVistoBueno && !_hardwareDisponible) || (_anexosPendientes.isNotEmpty && _urlAnexos == null) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
+												onPressed: (_procesando || _posicionPorcentual == null || (!_esModoVistoBueno && !_hardwareDisponible) || ((_sesionAnexos != null || _anexosPendientes.isNotEmpty) && _urlAnexos == null) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
 												style: ElevatedButton.styleFrom(backgroundColor: context.primaryPurple, foregroundColor: Colors.white, elevation: 0, minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill))),
 												child: _procesando
 														? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))

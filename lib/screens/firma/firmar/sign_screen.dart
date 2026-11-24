@@ -1,3 +1,4 @@
+import 'package:firmador_geresa/services/anexos_service.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:firmador_geresa/assets/tools/files_manag/folder_path_nxc.dart';
@@ -105,6 +106,7 @@ class SignScreen extends StatelessWidget {
 			final pdfProcesado = resultadoEditor['pdfBytes'] as Uint8List;
 			final requiereFirma = resultadoEditor['requiereFirma'] as bool;
 			final anexosPendientes = (resultadoEditor['anexosPendientes'] as List?)?.cast<File>() ?? <File>[];
+			final sesionAnexos = resultadoEditor['sesionAnexos'] as SesionAnexos?;
 			final obtrutaNxc = obtenerRutaNextcloud();
 
 			final imgSello = resultadoEditor['imagenSello'] as Uint8List?;
@@ -124,7 +126,8 @@ class SignScreen extends StatelessWidget {
 				builder: (_) => PopupFirma(
 					pdfBytes: pdfProcesado,
 					nombreArchivo: nombreFinal,
-					rutaDestinoFinal: rutaDestino,
+					rutaDestinoFinal: sesionAnexos?.destino ?? rutaDestino,
+					sesionAnexos: sesionAnexos,
 					esVistoBueno: !requiereFirma,
 					anexosPendientes: anexosPendientes,
 					imagenSello: imgSello,

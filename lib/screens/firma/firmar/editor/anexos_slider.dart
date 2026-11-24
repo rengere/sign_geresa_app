@@ -6,22 +6,28 @@ import 'package:firmador_geresa/assets/theme/app_theme.dart';
 /// Panel independiente de anexos pendientes de transferencia.
 class AnexosSlider extends StatefulWidget {
 	final String nombreArchivo;
+	final String? rutaSeleccionada;
+	final ValueChanged<File?> onSeleccionar;
 	final List<File> anexos;
 	final ValueChanged<String> onEliminar;
 	final VoidCallback onAgregar;
 	final VoidCallback onCerrar;
 	final VoidCallback onReiniciar;
 	final bool ocupado;
+	final bool puedeReiniciar;
 
 	const AnexosSlider({
 		super.key,
 		required this.nombreArchivo,
+		this.rutaSeleccionada,
+		required this.onSeleccionar,
 		required this.anexos,
 		required this.onEliminar,
 		required this.onAgregar,
 		required this.onCerrar,
 		required this.onReiniciar,
 		this.ocupado = false,
+		this.puedeReiniciar = false,
 	});
 
 	@override
@@ -38,12 +44,12 @@ class _AnexosSliderState extends State<AnexosSlider> {
 	}
 
 	Future<void> _confirmarReinicio() async {
-		if (widget.ocupado || widget.anexos.isEmpty) return;
+		if (widget.ocupado || !widget.puedeReiniciar) return;
 		final confirmar = await showDialog<bool>(
 			context: context,
 			builder: (ctx) => AlertDialog(
 				title: const Text('¿Reiniciar anexos?'),
-				content: const Text('Se quitarán todos los anexos pendientes y el código QR del documento. Los archivos originales no se eliminarán.'),
+				content: const Text('Se eliminará la carpeta de anexos de esta sesión, su enlace y el QR. Los archivos originales no se eliminarán.'),
 				actions: [
 					TextButton(
 						onPressed: () => Navigator.of(ctx).pop(false),
@@ -80,21 +86,24 @@ class _AnexosSliderState extends State<AnexosSlider> {
 											Expanded(child: Text('Anexos', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
 											IconButton(
 												tooltip: 'Reiniciar anexos',
-												onPressed: widget.ocupado || widget.anexos.isEmpty ? null : _confirmarReinicio,
+												onPressed: widget.ocupado || !widget.puedeReiniciar ? null : _confirmarReinicio,
 												icon: const Icon(Icons.restart_alt_rounded),
 												color: context.errorRed,
 											),
 										]),
 									),
-									Container(
+									GestureDetector(
+										onTap: widget.ocupado ? null : () => widget.onSeleccionar(null),
+										child: Container(
 										margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
 										padding: const EdgeInsets.all(8),
-										decoration: BoxDecoration(color: context.surfaceWhite, borderRadius: BorderRadius.circular(8), border: Border.all(color: context.primaryPurple)),
+										decoration: BoxDecoration(color: context.surfaceWhite, borderRadius: BorderRadius.circular(8), border: Border.all(color: widget.rutaSeleccionada == null ? context.primaryPurple : context.borderColor)),
 										child: Row(children: [
 											Icon(Icons.lock_outline, size: 20, color: context.primaryPurple),
 											const SizedBox(width: 8),
 											Expanded(child: Text(widget.nombreArchivo, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: context.textDark))),
 										]),
+									),
 									),
 									Expanded(
 										child: ScrollConfiguration(
@@ -120,18 +129,20 @@ class _AnexosSliderState extends State<AnexosSlider> {
 															);
 														}
 														final archivo = widget.anexos[index];
-														return Container(
+														return GestureDetector(
 															key: ValueKey(archivo.path),
+															onTap: widget.ocupado ? null : () => widget.onSeleccionar(archivo),
+															child: Container(
 															margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
 															padding: const EdgeInsets.all(8),
-															decoration: BoxDecoration(color: context.surfaceWhite, borderRadius: BorderRadius.circular(8), border: Border.all(color: context.borderColor)),
+															decoration: BoxDecoration(color: context.surfaceWhite, borderRadius: BorderRadius.circular(8), border: Border.all(color: widget.rutaSeleccionada == archivo.path ? context.primaryPurple : context.borderColor)),
 															child: Row(children: [
 																Icon(Icons.insert_drive_file_outlined, size: 20, color: context.textGrey),
 																const SizedBox(width: 8),
 																Expanded(child: Text(p.basename(archivo.path), maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: context.textDark))),
 																IconButton(tooltip: 'Quitar anexo', icon: Icon(Icons.close, size: 16, color: context.errorRed), onPressed: widget.ocupado ? null : () => widget.onEliminar(archivo.path), padding: EdgeInsets.zero, constraints: const BoxConstraints()),
 															]),
-														);
+														),);
 													},
 												),
 											),

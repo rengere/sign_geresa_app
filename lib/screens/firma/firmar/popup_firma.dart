@@ -15,6 +15,7 @@ class PopupFirma extends StatefulWidget {
 	final String? rutaDestinoFinal; // Ruta final (Firmados o Proyectados)
 	final bool esVistoBueno;
 	final List<File> anexosPendientes;
+	final SesionAnexos? sesionAnexos;
 
 	final Uint8List? imagenSello;
 	final int? pagina;
@@ -30,6 +31,7 @@ class PopupFirma extends StatefulWidget {
 		this.rutaDestinoFinal, // <-- Solo el destino
 		this.esVistoBueno = false,
 		this.anexosPendientes = const [],
+		this.sesionAnexos,
 		this.imagenSello,
 		this.pagina,
 		this.x,
@@ -56,11 +58,9 @@ class _PopupFirmaState extends State<PopupFirma> {
 	void initState() {
 		super.initState();
 		if (widget.esVistoBueno) {
-			_estado = _EstadoDialogoFirma.exito;
-			_pdfFirmado = widget.pdfBytes; 
-			_guardarCopia(widget.pdfBytes).then((_) => _transferirAnexos()).catchError((Object e) {
-			debugPrint('[Anexos] Error al transferir: $e');
-		}); 
+			_estado = _EstadoDialogoFirma.cargando;
+			_pdfFirmado = widget.pdfBytes;
+			_finalizarGuardado(); 
 		} else {
 			_estado = _EstadoDialogoFirma.pin;
 			WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -69,13 +69,26 @@ class _PopupFirmaState extends State<PopupFirma> {
 		}
 	}
 
+	Future<void> _finalizarGuardado() async {
+		try {
+			await _guardarCopia(_pdfFirmado!);
+			await _transferirAnexos();
+			if (mounted) setState(() => _estado = _EstadoDialogoFirma.exito);
+		} catch (e) {
+			if (mounted) setState(() {
+				_mensajeError = 'Error al guardar el documento o sus anexos: $e';
+				_estado = _EstadoDialogoFirma.error;
+			});
+		}
+	}
+
 	Future<void> _transferirAnexos() async {
 		if (widget.anexosPendientes.isEmpty) return;
-		final destino = widget.rutaDestinoFinal;
+		final destino = widget.sesionAnexos?.destino ?? widget.rutaDestinoFinal;
 		if (destino == null || destino.isEmpty) throw StateError('No hay carpeta de destino para los anexos.');
 		await AnexosService.transferirPendientes(
 			rutaCarpetaDestino: destino,
-			nombreArchivoOriginal: widget.nombreArchivo,
+			nombreArchivoOriginal: widget.sesionAnexos?.nombrePdf ?? widget.nombreArchivo,
 			archivosAnexos: widget.anexosPendientes,
 		);
 		debugPrint('[Anexos] Transferencia completada: ${widget.anexosPendientes.length} archivos');
@@ -86,15 +99,17 @@ class _PopupFirmaState extends State<PopupFirma> {
 		final ahora = DateTime.now();
 		final timestamp = '${ahora.day.toString().padLeft(2, '0')}-${ahora.month.toString().padLeft(2, '0')}-${ahora.year}_${ahora.hour.toString().padLeft(2, '0')}-${ahora.minute.toString().padLeft(2, '0')}-${ahora.second.toString().padLeft(2, '0')}';
 		final nombreBase = widget.nombreArchivo.toLowerCase().endsWith('.pdf') ? widget.nombreArchivo.substring(0, widget.nombreArchivo.length - 4) : widget.nombreArchivo;
-		final nombreBackup = '${nombreBase}_$timestamp.pdf';
+		final nombreBackup = widget.sesionAnexos?.nombrePdf ?? '${nombreBase}_$timestamp.pdf';
 
-		if (widget.rutaDestinoFinal != null) {
+		final carpetaDestino = widget.sesionAnexos?.rutaLocal ?? widget.rutaDestinoFinal;
+		if (carpetaDestino != null) {
 			try {
-				final destino = File('${widget.rutaDestinoFinal}${Platform.pathSeparator}$nombreBackup');
+				final destino = File('$carpetaDestino${Platform.pathSeparator}$nombreBackup');
 				await destino.writeAsBytes(bytes);
 				debugPrint('[Firmar] Copia guardada en: ${destino.path}');
 			} catch (e) {
 				debugPrint('[Firmar] Error al guardar copia: $e');
+				if (widget.sesionAnexos != null) rethrow;
 			}
 		}
 	}
@@ -115,17 +130,8 @@ class _PopupFirmaState extends State<PopupFirma> {
 				alto: widget.alto,
 			);
 			
-			await _guardarCopia(pdfFirmado);
-			try {
-				await _transferirAnexos();
-			} catch (e) {
-				debugPrint('[Anexos] La firma se completó, pero falló la transferencia: $e');
-			}
-
-			setState(() {
-				_pdfFirmado = pdfFirmado;
-				_estado = _EstadoDialogoFirma.exito;
-			});
+			_pdfFirmado = pdfFirmado;
+			await _finalizarGuardado();
 		} catch (e) {
 			setState(() {
 				_mensajeError = '$e';
@@ -376,7 +382,14 @@ class _PopupFirmaState extends State<PopupFirma> {
 							const SizedBox(width: 16),
 							Expanded(
 								child: ElevatedButton(
-									onPressed: () => setState(() => _estado = _EstadoDialogoFirma.pin),
+									onPressed: () {
+										if (_pdfFirmado != null) {
+											setState(() => _estado = _EstadoDialogoFirma.cargando);
+											_finalizarGuardado();
+										} else {
+											setState(() => _estado = _EstadoDialogoFirma.pin);
+										}
+									},
 									style: ElevatedButton.styleFrom(
 										backgroundColor: context.primaryPurple,
 										foregroundColor: Colors.white,

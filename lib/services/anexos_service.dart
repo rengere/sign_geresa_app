@@ -5,7 +5,49 @@ import 'package:path/path.dart' as p;
 import 'package:firmador_geresa/services/nextcloud_api_service.dart';
 import 'package:firmador_geresa/services/nextcloud_rutas_service.dart';
 
+class SesionAnexos {
+	final String nombrePdf;
+	final String destino;
+	final String rutaLocal;
+	final String rutaRemota;
+	String? url;
+	SesionAnexos(this.nombrePdf, this.destino, this.rutaLocal, this.rutaRemota);
+}
+
 class AnexosService {
+	static Future<SesionAnexos> reservarSesion(String destino, String nombre) async {
+		final base = p.basenameWithoutExtension(nombre);
+		for (int i = 0; i < 60; i++) {
+			final ahora = DateTime.now().add(Duration(seconds: i));
+			String dos(int n) => n.toString().padLeft(2, '0');
+			final marca = '${dos(ahora.day)}-${dos(ahora.month)}-${ahora.year}_${dos(ahora.hour)}-${dos(ahora.minute)}-${dos(ahora.second)}';
+			final nombrePdf = '${base}_$marca.pdf';
+			final local = p.join(destino, '@${base}_$marca');
+			if (await Directory(local).exists() || await File(p.join(destino, nombrePdf)).exists()) continue;
+			final remota = await NextcloudRutasService.obtenerRutaRemota(local);
+			if (await NextcloudApiService.reservarCarpeta(remota)) {
+				return SesionAnexos(nombrePdf, destino, local, remota);
+			}
+		}
+		throw StateError('No se pudo reservar un nombre único');
+	}
+
+	static Future<void> prepararSesion(SesionAnexos sesion) async {
+		await Directory(sesion.rutaLocal).create(recursive: true);
+		sesion.url ??= await NextcloudApiService.generarEnlacePublico(sesion.rutaRemota);
+		if (sesion.url == null) throw StateError('No se pudo generar el enlace público');
+	}
+
+	static Future<void> reiniciarSesion(SesionAnexos sesion) async {
+		final carpeta = Directory(sesion.rutaLocal);
+		if (await carpeta.exists() && !await carpeta.list().isEmpty) {
+			throw StateError('La carpeta contiene archivos. No se eliminará automáticamente.');
+		}
+		// Al eliminar la carpeta remota, Nextcloud invalida sus enlaces compartidos.
+		await NextcloudApiService.eliminarCarpeta(sesion.rutaRemota);
+		if (await carpeta.exists()) await carpeta.delete();
+	}
+
 	static Future<String?> prepararCarpeta({
 		required String rutaCarpetaDestino,
 		required String nombreArchivoOriginal,

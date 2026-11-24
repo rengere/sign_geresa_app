@@ -12,6 +12,14 @@ class NextcloudStgs extends StatefulWidget {
 }
 
 class _NextcloudStgsState extends State<NextcloudStgs> {
+	final ScrollController _rutasScrollController = ScrollController();
+
+	@override
+	void dispose() {
+		_rutasScrollController.dispose();
+		super.dispose();
+	}
+
 	// Valor actual de la ruta principal
 	String _rutaNextCloud = '';
 	
@@ -204,6 +212,13 @@ class _NextcloudStgsState extends State<NextcloudStgs> {
 	// ==========================================
 	// BUILD
 	// ==========================================
+	String _nombreCarpeta(String ruta) {
+		final partes = ruta.split(RegExp(r'[/\\]+')).where((parte) => parte.isNotEmpty).toList();
+		if (partes.isEmpty) return ruta;
+		final nombre = partes.last;
+		return nombre.startsWith('_') ? nombre.substring(1) : nombre;
+	}
+
 	@override
 	Widget build(BuildContext context) {
 		return Padding(
@@ -273,79 +288,116 @@ class _NextcloudStgsState extends State<NextcloudStgs> {
 							),
 						)
 					else
-						Container(
-							decoration: BoxDecoration(
-								border: Border.all(color: context.borderColor),
-								borderRadius: BorderRadius.circular(context.radiusMd),
-							),
-							child: ClipRRect(
-								borderRadius: BorderRadius.circular(context.radiusMd),
-								child: Table(
-									columnWidths: const {
-										0: FlexColumnWidth(3),
-										1: FlexColumnWidth(2),
-										2: FlexColumnWidth(2),
-										3: FixedColumnWidth(100),
-									},
-									border: TableBorder(horizontalInside: BorderSide(color: context.borderColor)),
-									children: [
-										// CABECERA CORREGIDA
-										TableRow(
-											decoration: BoxDecoration(color: context.surfaceGrey),
-											children: [
-												Padding(padding: const EdgeInsets.all(12), child: Text('Ruta', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
-												Padding(padding: const EdgeInsets.all(12), child: Text('Doc. Proyectados', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
-												Padding(padding: const EdgeInsets.all(12), child: Text('Doc. Firmados', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
-												Padding(padding: const EdgeInsets.all(12), child: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
-											],
-										),
-										// FILAS
-										..._rutasAlternativas.asMap().entries.map((entry) {
-											final i = entry.key;
-											final ruta = entry.value;
-											return TableRow(
+						Expanded(
+							child: Container(
+								decoration: BoxDecoration(
+									border: Border.all(color: context.borderColor),
+									borderRadius: BorderRadius.circular(context.radiusMd),
+								),
+								child: ClipRRect(
+									borderRadius: BorderRadius.circular(context.radiusMd),
+									child: Column(
+										children: [
+											Padding(
+												padding: const EdgeInsets.only(right: 12),
+												child: Table(
+												columnWidths: const {
+													0: FlexColumnWidth(2),
+													1: FlexColumnWidth(3),
+													2: FlexColumnWidth(2),
+													3: FlexColumnWidth(2),
+													4: FixedColumnWidth(100),
+												},
 												children: [
-													Padding(padding: const EdgeInsets.all(12), child: Text(ruta['ruta'], overflow: TextOverflow.ellipsis, style: TextStyle(color: context.textDark))),
-													Padding(
-														padding: const EdgeInsets.all(12),
-														child: Icon(
-															ruta['proyectados'] ? Icons.check_circle_rounded : Icons.cancel_rounded,
-															color: ruta['proyectados'] ? Colors.green : context.textGrey,
-															size: 20,
+													TableRow(
+														decoration: BoxDecoration(color: context.surfaceGrey),
+														children: [
+															Padding(padding: const EdgeInsets.all(12), child: Text('Nombre', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
+															Padding(padding: const EdgeInsets.all(12), child: Text('Ruta', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
+															Padding(padding: const EdgeInsets.all(12), child: Text('Doc. Proyectados', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
+															Padding(padding: const EdgeInsets.all(12), child: Text('Doc. Firmados', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
+															Padding(padding: const EdgeInsets.all(12), child: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold, color: context.textDark))),
+														],
+													),
+													],
+												),
+											),
+											Expanded(
+												child: ScrollConfiguration(
+													behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+													child: Scrollbar(
+														controller: _rutasScrollController,
+														thumbVisibility: true,
+														interactive: true,
+														thickness: 6,
+														radius: const Radius.circular(8),
+														child: SingleChildScrollView(
+															controller: _rutasScrollController,
+															padding: const EdgeInsets.only(right: 12),
+															child: Table(
+																	columnWidths: const {
+																		0: FlexColumnWidth(2),
+																		1: FlexColumnWidth(3),
+																		2: FlexColumnWidth(2),
+																		3: FlexColumnWidth(2),
+																		4: FixedColumnWidth(100),
+																	},
+																	border: TableBorder(top: BorderSide(color: context.borderColor), horizontalInside: BorderSide(color: context.borderColor)),
+																	children: [
+																		..._rutasAlternativas.asMap().entries.map((entry) {
+																			final i = entry.key;
+																			final ruta = entry.value;
+																			return TableRow(
+																				children: [
+																					Padding(padding: const EdgeInsets.all(12), child: Text(_nombreCarpeta(ruta['ruta']), overflow: TextOverflow.ellipsis, style: TextStyle(color: context.textDark))),
+																					Padding(padding: const EdgeInsets.all(12), child: Tooltip(message: ruta['ruta'], child: Text(ruta['ruta'], overflow: TextOverflow.ellipsis, style: TextStyle(color: context.textDark)))),
+																					Padding(
+																						padding: const EdgeInsets.all(12),
+																						child: Icon(
+																							ruta['proyectados'] ? Icons.check_circle_rounded : Icons.cancel_rounded,
+																							color: ruta['proyectados'] ? Colors.green : context.textGrey,
+																							size: 20,
+																						),
+																					),
+																					Padding(
+																						padding: const EdgeInsets.all(12),
+																						child: Icon(
+																							ruta['firmados'] ? Icons.check_circle_rounded : Icons.cancel_rounded,
+																							color: ruta['firmados'] ? Colors.green : context.textGrey,
+																							size: 20,
+																						),
+																					),
+																					Padding(
+																						padding: const EdgeInsets.symmetric(horizontal: 4),
+																						child: Row(
+																							mainAxisSize: MainAxisSize.min,
+																							children: [
+																								IconButton(
+																									onPressed: () => _mostrarPopupRuta(index: i),
+																									icon: const Icon(Icons.edit_rounded, size: 18),
+																									color: context.primaryPurple,
+																									tooltip: 'Editar',
+																								),
+																								IconButton(
+																									onPressed: () => _eliminarRuta(i),
+																									icon: const Icon(Icons.delete_rounded, size: 18),
+																									color: context.errorRed,
+																									tooltip: 'Eliminar',
+																								),
+																							],
+																						),
+																					),
+																				],
+																			);
+																		}),
+																	],
+															),
 														),
 													),
-													Padding(
-														padding: const EdgeInsets.all(12),
-														child: Icon(
-															ruta['firmados'] ? Icons.check_circle_rounded : Icons.cancel_rounded,
-															color: ruta['firmados'] ? Colors.green : context.textGrey,
-															size: 20,
-														),
-													),
-													Padding(
-														padding: const EdgeInsets.symmetric(horizontal: 4),
-														child: Row(
-															mainAxisSize: MainAxisSize.min,
-															children: [
-																IconButton(
-																	onPressed: () => _mostrarPopupRuta(index: i),
-																	icon: const Icon(Icons.edit_rounded, size: 18),
-																	color: context.primaryPurple,
-																	tooltip: 'Editar',
-																),
-																IconButton(
-																	onPressed: () => _eliminarRuta(i),
-																	icon: const Icon(Icons.delete_rounded, size: 18),
-																	color: context.errorRed,
-																	tooltip: 'Eliminar',
-																),
-															],
-														),
-													),
-												],
-											);
-										}),
-									],
+												),
+											),
+										],
+									),
 								),
 							),
 						),

@@ -93,4 +93,24 @@ class NextcloudApiService {
 			return null;
 		}
 	}
+
+	// Reserva exclusiva: nunca reutiliza una carpeta existente.
+	static Future<bool> reservarCarpeta(String ruta) async {
+		final request = http.Request('MKCOL', _urlWebDav(ruta));
+		request.headers['Authorization'] = _autorizacion;
+		final response = await http.Response.fromStream(await request.send());
+		if (response.statusCode == 201) return true;
+		if (response.statusCode == 405 && await existeCarpeta(ruta)) return false;
+		throw StateError('No se pudo reservar carpeta: ${response.statusCode}');
+	}
+
+	static Future<void> eliminarCarpeta(String ruta) async {
+		if (!_normalizarRemota(ruta).split('/').last.startsWith('@')) {
+			throw ArgumentError('No es una carpeta de anexos');
+		}
+		final response = await http.delete(_urlWebDav(ruta), headers: {'Authorization': _autorizacion});
+		if (![200, 204, 404].contains(response.statusCode)) {
+			throw StateError('Error eliminando carpeta: ${response.statusCode}');
+		}
+	}
 }
