@@ -78,5 +78,3 @@ class _FirmadorAppState extends State<FirmadorApp> with WidgetsBindingObserver, 
 		);
 	}
 }
-
-
