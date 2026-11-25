@@ -1195,20 +1195,20 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 														child: Row(
 															mainAxisSize: MainAxisSize.min,
 															children: [
-																FloatingActionButton(
-																	// ======================================================
-																	// BOTÓN DOCUMENTOS REFERENCIALES: NO COMENTAR AÚN
-																	// ======================================================
-																	heroTag: 'btn_ref',
-																	onPressed: _procesando ? null : _agregarReferencial,
-																	backgroundColor: context.primaryPurple,
-																	foregroundColor: Colors.white,
-																	tooltip: _procesando ? 'Verificando documento...' : 'Añadir documento referencial',
-																	child: _procesando
-																			? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-																			: const Icon(Icons.attach_file_rounded),
-																),
-																const SizedBox(width: 16),
+																// FloatingActionButton(
+																// 	// ======================================================
+																// 	// BOTÓN DOCUMENTOS REFERENCIALES: NO COMENTAR AÚN
+																// 	// ======================================================
+																// 	heroTag: 'btn_ref',
+																// 	onPressed: _procesando ? null : _agregarReferencial,
+																// 	backgroundColor: context.primaryPurple,
+																// 	foregroundColor: Colors.white,
+																// 	tooltip: _procesando ? 'Verificando documento...' : 'Añadir documento referencial',
+																// 	child: _procesando
+																// 			? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+																// 			: const Icon(Icons.attach_file_rounded),
+																// ),
+																// const SizedBox(width: 16),
 																FloatingActionButton(
 																			// ======================================================
 																	// BOTÓN ANEXOS: NO COMENTAR AÚN
