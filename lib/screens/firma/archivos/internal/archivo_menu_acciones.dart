@@ -15,7 +15,7 @@ enum AccionArchivo {
 }
 
 /// Items compartidos por el botón ⋮ y por el clic derecho.
-List<PopupMenuEntry<AccionArchivo>> construirItemsMenu(BuildContext context, {required bool esProyectado}) {
+List<PopupMenuEntry<AccionArchivo>> construirItemsMenu(BuildContext context, {required bool esProyectado, bool esCompartido = false}) {
 	return [
 		_item(context, AccionArchivo.verEnApp, Icons.visibility_outlined, 'Ver en la app'),
 		if (esProyectado)
@@ -25,7 +25,8 @@ List<PopupMenuEntry<AccionArchivo>> construirItemsMenu(BuildContext context, {re
 		_item(context, AccionArchivo.mostrarCarpeta, Icons.folder_open_outlined, 'Mostrar en carpeta'),
 		_item(context, AccionArchivo.descargar, Icons.download_outlined, 'Descargar'),
 		// _item(context, AccionArchivo.compartir, Icons.share_outlined, 'Compartir'), // <-- COMENTADO
-		_item(context, AccionArchivo.renombrar, Icons.drive_file_rename_outline_rounded, 'Renombrar'),
+		if (!esCompartido)
+			_item(context, AccionArchivo.renombrar, Icons.drive_file_rename_outline_rounded, 'Renombrar'),
 		_item(context, AccionArchivo.detalles, Icons.info_outline_rounded, 'Ver detalles'),
 		const PopupMenuDivider(),
 		

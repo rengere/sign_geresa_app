@@ -37,7 +37,7 @@ class ArchivoFila extends StatelessWidget {
 			color: context.surfaceWhite,
 			elevation: 8,
 			shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
-			items: construirItemsMenu(context, esProyectado: esProyectado),
+			items: construirItemsMenu(context, esProyectado: esProyectado, esCompartido: archivo.esCompartido),
 		);
 		if (accion != null) onAccion(accion);
 	}
@@ -76,6 +76,13 @@ class ArchivoFila extends StatelessWidget {
 											child: Icon(Icons.picture_as_pdf_rounded, size: 20, color: context.accentCoral),
 										),
 										const SizedBox(width: 12),
+										if (archivo.esCompartido) ...[
+											Tooltip(
+												message: 'Documento en carpeta compartida',
+												child: Icon(Icons.link_rounded, size: 18, color: context.primaryPurple),
+											),
+											const SizedBox(width: 8),
+										],
 										Expanded(
 											child: Tooltip(
 												message: archivo.nombre,
@@ -132,7 +139,7 @@ class ArchivoFila extends StatelessWidget {
 									elevation: 8,
 									shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusMd)),
 									onSelected: onAccion,
-									itemBuilder: (context) => construirItemsMenu(context, esProyectado: esProyectado),
+									itemBuilder: (context) => construirItemsMenu(context, esProyectado: esProyectado, esCompartido: archivo.esCompartido),
 								),
 							),
 						],

@@ -1210,14 +1210,14 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																// ),
 																// const SizedBox(width: 16),
 																FloatingActionButton(
-																			// ======================================================
+																	// ======================================================
 																	// BOTÓN ANEXOS: NO COMENTAR AÚN
-																// ======================================================
+																	// ======================================================
 																	heroTag: 'btn_anexos',
 																	onPressed: (_procesando || _cargandoAnexos || _documentoYaFirmado) ? null : _abrirAnexos,
 																	backgroundColor: context.primaryPurple,
 																	foregroundColor: Colors.white,
-																	tooltip: _documentoYaFirmado ? 'Documento ya firmado' : 'Añadir anexos',
+																	tooltip: _documentoYaFirmado ? 'Documento ya firmado' : 'Añadir documento referencial',
 																	child: _cargandoAnexos ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.cloud_upload_rounded),
 																),
 															],

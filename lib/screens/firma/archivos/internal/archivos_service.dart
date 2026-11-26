@@ -13,54 +13,72 @@ class ArchivosService {
 
 	String get _sep => Platform.pathSeparator;
 
+	Future<Map<String, dynamic>> _leerNotas(String carpeta) async {
+		final archivo = File(p.join(carpeta, 'notes.json'));
+		try {
+			if (await archivo.exists()) {
+				return jsonDecode(await archivo.readAsString()) as Map<String, dynamic>;
+			}
+		} catch (e) {
+			debugPrint('Error leyendo notes.json: $e');
+		}
+		return {};
+	}
+
+	Future<ArchivoPdf> _crearArchivoPdf(File archivo, Map<String, dynamic> notas, {bool esCompartido = false}) async {
+		final nombre = p.basename(archivo.path);
+		final stat = await archivo.stat();
+		final listaNotas = notas[nombre];
+		return ArchivoPdf(
+			ruta: archivo.path,
+			nombre: nombre,
+			fecha: stat.modified,
+			tamano: stat.size,
+			tieneNotas: listaNotas is List && listaNotas.isNotEmpty,
+			esCompartido: esCompartido,
+		);
+	}
+
 	Future<List<ArchivoPdf>> listar(String rutaCarpeta) async {
 		final dir = Directory(rutaCarpeta);
 		if (!await dir.exists()) {
 			throw FileSystemException('La carpeta no existe', rutaCarpeta);
 		}
 
-		// Leer notes.json si existe
-		Map<String, dynamic> notasData = {};
-		final archivoNotas = File(p.join(rutaCarpeta, 'notes.json'));
-		if (await archivoNotas.exists()) {
-			try {
-				final contenido = await archivoNotas.readAsString();
-				notasData = jsonDecode(contenido) as Map<String, dynamic>;
-			} catch (e) {
-				debugPrint('Error leyendo notes.json: $e');
-			}
-		}
-
+		final notasRaiz = await _leerNotas(rutaCarpeta);
 		final resultado = <ArchivoPdf>[];
 		await for (final entidad in dir.list(followLinks: false)) {
-			if (entidad is! File) continue;
-			final nombre = entidad.path.split(_sep).last;
-			if (!nombre.toLowerCase().endsWith('.pdf')) continue;
+			final nombre = p.basename(entidad.path);
 			if (nombre.startsWith(prefijoEliminado)) continue;
-
-			final stat = await entidad.stat();
-
-			bool tieneNotas = false;
-			if (notasData.containsKey(nombre)) {
-				final listaNotas = notasData[nombre] as List?;
-				if (listaNotas != null && listaNotas.isNotEmpty) {
-					tieneNotas = true;
+			if (entidad is File && nombre.toLowerCase().endsWith('.pdf')) {
+				resultado.add(await _crearArchivoPdf(entidad, notasRaiz));
+			} else if (entidad is Directory && nombre.startsWith('@') && nombre.length > 1) {
+				// Solo buscar el documento principal, nunca listar los referenciales.
+				final esperado = '${nombre.substring(1)}.pdf';
+				try {
+					final candidatos = <File>[];
+					await for (final interno in entidad.list(followLinks: false)) {
+						if (interno is File && p.basename(interno.path).toLowerCase() == esperado.toLowerCase()) {
+							candidatos.add(interno);
+						}
+					}
+					// Si hay ambigüedad, no elegir un referencial por error.
+					if (candidatos.length != 1) continue;
+					final notas = await _leerNotas(entidad.path);
+					resultado.add(await _crearArchivoPdf(candidatos.single, notas, esCompartido: true));
+				} catch (e) {
+					debugPrint('Error leyendo carpeta compartida ${entidad.path}: $e');
 				}
 			}
-
-			resultado.add(ArchivoPdf(
-				ruta: entidad.path,
-				nombre: nombre,
-				fecha: stat.modified,
-				tamano: stat.size,
-				tieneNotas: tieneNotas, // <-- ASIGNAMOS
-			));
 		}
 		return resultado;
 	}
 
 	// ... (El resto del archivo se mantiene exactamente igual)
 	Future<void> renombrar(ArchivoPdf archivo, String nuevoNombre) async {
+		if (archivo.esCompartido) {
+			throw FileSystemException('No se puede renombrar un documento de una carpeta compartida', archivo.ruta);
+		}
 		final destino = '${archivo.carpeta}$_sep$nuevoNombre';
 		if (await File(destino).exists()) {
 			throw FileSystemException('Ya existe un archivo con ese nombre', destino);

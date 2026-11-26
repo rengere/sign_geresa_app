@@ -408,6 +408,12 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 	}
 
 	Future<void> _renombrar(ArchivoPdf a) async {
+		if (a.esCompartido) {
+			ScaffoldMessenger.of(context).showSnackBar(
+				const SnackBar(content: Text('No se puede renombrar un documento de una carpeta compartida.')),
+			);
+			return;
+		}
 		final existentes = _archivos.where((x) => x.ruta != a.ruta).map((x) => x.nombre.toLowerCase()).toSet();
 		final nuevo = await mostrarRenombrar(context, nombreActual: a.nombre, existentes: existentes);
 		if (nuevo == null || nuevo == a.nombre) return;

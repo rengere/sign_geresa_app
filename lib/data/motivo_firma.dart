@@ -7,5 +7,6 @@ const List<String> motivosFirmaPred = [
 
 const List<String> motivosVistoBuenoPred = [
 	'Visto bueno',
-	"Elaboración de doc."
+	"Elaboración de doc.",
+	'Por encargo'
 ];

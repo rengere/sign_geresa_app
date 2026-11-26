@@ -7,6 +7,7 @@ class ArchivoPdf {
 	final String nombre;
 	final DateTime fecha;
 	final int tamano;
+	final bool esCompartido;
 	final bool tieneNotas; // <-- NUEVO CAMPO
 
 	const ArchivoPdf({
@@ -15,6 +16,7 @@ class ArchivoPdf {
 		required this.fecha,
 		required this.tamano,
 		this.tieneNotas = false,
+		this.esCompartido = false,
 	});
 
 	String get carpeta => File(ruta).parent.path;
