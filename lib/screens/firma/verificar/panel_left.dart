@@ -85,6 +85,10 @@ class _VerifyLayoutState extends State<VerifyLayout> {
 							child: FileDropZone(
 								width: 400,
 								height: 380,
+								titulo: 'Arrastra el documento que deseas verificar',
+								subtitulo: 'o selecciona un archivo PDF',
+								tamanoMaximoMB: 30,
+								formatosPermitidos: ['pdf'],
 								onFileDropped: _onArchivoCargado,
 							),
 						),

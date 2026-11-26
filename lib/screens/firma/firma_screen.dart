@@ -19,7 +19,7 @@ class FirmaScreen extends StatelessWidget {
 				),
 				FirmaTabItem(
 					title: 'Ver Archivos',
-					icon: Icons.verified_user_rounded,
+					icon: Icons.folder_open,
 					screen: VerArchivos(),
 				),
 				FirmaTabItem(

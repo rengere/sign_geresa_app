@@ -206,17 +206,33 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	void _cargarConfiguracionFirma() {
-		final motivosFirmaExtra = (JsonStorage.getJson('firma_motivos_extra') as List?)?.cast<String>() ?? [];
-		_motivosFirmaDisponibles = [...motivosFirmaPred, ...motivosFirmaExtra];
+		final motivosFirmaExtra = (JsonStorage.getJson('firma_motivos_extra') as List?)?.whereType<String>().toList() ?? [];
+
+		_motivosFirmaDisponibles = {
+			...motivosFirmaPred,
+			...motivosFirmaExtra,
+		}.map((m) => m.trim()).where((m) => m.isNotEmpty).toSet().toList();
+
 		_cargosDisponibles = (JsonStorage.getJson('firma_cargos') as List?)?.cast<String>() ?? [];
-		final motivosVbExtra = (JsonStorage.getJson('vb_motivos_extra') as List?)?.cast<String>() ?? [];
-		_motivosVbDisponibles = [...motivosVistoBuenoPred, ...motivosVbExtra];
+
+		final motivosVbExtra = (JsonStorage.getJson('vb_motivos_extra') as List?)?.whereType<String>().toList() ?? [];
+
+		_motivosVbDisponibles = {
+			...motivosVistoBuenoPred,
+			...motivosVbExtra,
+		}.map((m) => m.trim()).where((m) => m.isNotEmpty).toSet().toList();
 
 		final firmaActiva = JsonStorage.getString('firma_motivo_activo');
-		_motivoSeleccionado = (firmaActiva != null && _motivosFirmaDisponibles.contains(firmaActiva)) ? firmaActiva : (_motivosFirmaDisponibles.isNotEmpty ? _motivosFirmaDisponibles.first : '');
+
+		_motivoSeleccionado = (firmaActiva != null && _motivosFirmaDisponibles.contains(firmaActiva))
+			? firmaActiva
+			: (_motivosFirmaDisponibles.isNotEmpty ? _motivosFirmaDisponibles.first : '');
 
 		final cargoActivo = JsonStorage.getString('firma_cargo_activo');
-		_cargoSeleccionado = (cargoActivo != null && _cargosDisponibles.contains(cargoActivo)) ? cargoActivo : (_cargosDisponibles.isNotEmpty ? _cargosDisponibles.first : null);
+
+		_cargoSeleccionado = (cargoActivo != null && _cargosDisponibles.contains(cargoActivo))
+			? cargoActivo
+			: (_cargosDisponibles.isNotEmpty ? _cargosDisponibles.first : null);
 
 		_direccionOficina = JsonStorage.getString('firma_direccion_oficina') ?? '';
 

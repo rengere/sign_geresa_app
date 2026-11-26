@@ -8,14 +8,23 @@ import 'package:firmador_geresa/assets/theme/app_theme.dart';
 class FileDropZone extends StatefulWidget {
 	final double width;
 	final double height;
+	final String titulo;
+	final String subtitulo;
+	final double? tamanoMaximoMB;
+	final List<String> formatosPermitidos;
 	final void Function(String path, String nombre) onFileDropped;
 
 	const FileDropZone({
 		super.key,
 		required this.width,
 		required this.height,
+		required this.titulo,
+		required this.subtitulo,
+		this.tamanoMaximoMB,
+		required this.formatosPermitidos,
 		required this.onFileDropped,
-	});
+	}) : assert(tamanoMaximoMB == null || tamanoMaximoMB > 0),
+		assert(formatosPermitidos.length > 0);
 
 	@override
 	State<FileDropZone> createState() => _FileDropZoneState();
@@ -23,23 +32,29 @@ class FileDropZone extends StatefulWidget {
 
 class _FileDropZoneState extends State<FileDropZone> {
 	bool _isDragging = false;
+	int? get _tamanoMaximo {
+		final limite = widget.tamanoMaximoMB;
+		return limite == null ? null : (limite * 1024 * 1024).floor();
+	}
 
-	// Extensiones aceptadas en esta zona de carga. El .doc se deja pasar
-	// hasta acá a propósito: es sign_screen.dart quien lo rechaza con un
-	// mensaje específico explicando por qué no se puede convertir, en vez
-	// de duplicar esa lógica en dos lugares.
-	static const _extensionesPermitidas = ['.pdf', '.docx', '.doc'];
+	List<String> get _extensionesPermitidas => widget.formatosPermitidos
+		.map((ext) => ext.trim().toLowerCase().replaceFirst(RegExp(r'^\.'), ''))
+		.where((ext) => ext.isNotEmpty)
+		.toSet()
+		.toList();
+
+	String get _limiteTexto => widget.tamanoMaximoMB.toString().replaceFirst(RegExp(r'\.0$'), '');
 
 	bool _extensionPermitida(String path) {
 		final pathMin = path.toLowerCase();
-		return _extensionesPermitidas.any((ext) => pathMin.endsWith(ext));
+		return _extensionesPermitidas.any((ext) => pathMin.endsWith('.$ext'));
 	}
 
 	Future<void> _procesarArchivo(String path) async {
 		if (!_extensionPermitida(path)) {
 			if (mounted) {
 				ScaffoldMessenger.of(context).showSnackBar(
-					const SnackBar(content: Text('Solo se permiten archivos PDF o Word (.docx).')),
+					SnackBar(content: Text('Formatos permitidos: ${_extensionesPermitidas.join(", ")}.')),
 				);
 			}
 			return;
@@ -48,24 +63,45 @@ class _FileDropZoneState extends State<FileDropZone> {
 		final archivo = File(path);
 		final nombre = path.split(Platform.pathSeparator).last;
 
+		final limite = _tamanoMaximo;
+		if (limite != null) {
+			try {
+				final tamano = await archivo.length();
+				if (!mounted) return;
+
+				if (tamano > limite) {
+					final tamanoMb = (tamano / (1024 * 1024)).toStringAsFixed(2);
+					ScaffoldMessenger.of(context).showSnackBar(
+						SnackBar(content: Text('El documento pesa $tamanoMb MB. El tamaño máximo permitido es de $_limiteTexto MB.')),
+					);
+					return;
+				}
+			} catch (e) {
+				if (mounted) {
+					ScaffoldMessenger.of(context).showSnackBar(
+						const SnackBar(content: Text('No se pudo comprobar el tamaño del documento.')),
+					);
+				}
+				return;
+			}
+		}
+
+		if (!mounted) return;
 		widget.onFileDropped(archivo.path, nombre);
 	}
 
 	Future<void> _elegirArchivo() async {
 		final resultado = await FilePicker.platform.pickFiles(
 			type: FileType.custom,
-			allowedExtensions: ['pdf', 'docx', 'doc'],
-			withData: true,
+			allowedExtensions: _extensionesPermitidas,
+			withData: false,
 		);
 		if (resultado == null || resultado.files.single.path == null) {
 			return;
 		}
 
 		if (!mounted) return;
-		widget.onFileDropped(
-			resultado.files.single.path!,
-			resultado.files.single.name,
-		);
+		await _procesarArchivo(resultado.files.single.path!);
 	}
 
 	@override
@@ -106,7 +142,7 @@ class _FileDropZoneState extends State<FileDropZone> {
 								),
 								const SizedBox(height: AppTheme.spaceLg),
 								Text(
-									'Arrastra tu documento (PDF o Word) aquí',
+									widget.titulo,
 									style: TextStyle(
 										fontSize: 18,
 										fontWeight: FontWeight.w600,
@@ -115,12 +151,19 @@ class _FileDropZoneState extends State<FileDropZone> {
 								),
 								const SizedBox(height: AppTheme.spaceSm),
 								Text(
-									'o haz clic para seleccionarlo',
+									widget.subtitulo,
 									style: TextStyle(
 										fontSize: 14,
 										color: context.textGrey,
 									),
 								),
+								if (widget.tamanoMaximoMB != null) ...[
+									const SizedBox(height: AppTheme.spaceSm),
+									Text(
+										'Tamaño máximo: $_limiteTexto MB',
+										style: TextStyle(fontSize: 12, color: context.textGrey),
+									),
+								],
 							],
 						),
 					),

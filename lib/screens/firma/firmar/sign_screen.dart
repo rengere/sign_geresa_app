@@ -286,6 +286,10 @@ class SignScreen extends StatelessWidget {
 				child: FileDropZone(
 					width: 500,
 					height: 300,
+					titulo: 'Arrastra tu documento (PDF o Word) aquí',
+					subtitulo: 'o haz clic para seleccionarlo',
+					tamanoMaximoMB: 15,
+					formatosPermitidos: ['pdf', 'docx', 'doc'],
 					onFileDropped: (path, nombre) => _procesarArchivo(context, path, nombre),
 				),
 			),
