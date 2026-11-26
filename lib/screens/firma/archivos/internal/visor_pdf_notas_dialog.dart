@@ -1,4 +1,10 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
+import 'package:firmador_geresa/services/api_service.dart';
+import 'package:firmador_geresa/screens/firma/firmar/editor/correlativo_visual.dart';
+import 'package:firmador_geresa/screens/firma/firmar/editor/config_sello_firma.dart';
 import 'dart:math' as math;
 import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +12,10 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:printing/printing.dart';
 import 'archivo_pdf.dart';
 import 'notas_service.dart';
+
+class _ArrastreCorrelativo {
+	const _ArrastreCorrelativo();
+}
 
 class VisorPdfNotasDialog extends StatefulWidget {
 	final ArchivoPdf archivo;
@@ -18,12 +28,24 @@ class VisorPdfNotasDialog extends StatefulWidget {
 }
 
 class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
-	final PdfViewerController _pdfController = PdfViewerController();
+	PdfViewerController _pdfController = PdfViewerController();
 	final GlobalKey _stackKey = GlobalKey();
 	
 	List<Nota> _notas = [];
 	bool _cargando = true;
-	bool _mostrarBarra = false;
+	bool _mostrarBarra = true;
+	bool _sinFirma = false;
+	bool _guardandoCorrelativo = false;
+	Uint8List? _bytesVerificados;
+	Uint8List? _bytesVisor;
+	String? _errorVisor;
+	int _revisionPdf = 0;
+	final _correlativoCtrl = TextEditingController();
+	double _fuenteCorrelativo = 12;
+	Offset? _posicionCorrelativo;
+	int _paginaCorrelativo = 1;
+	static const double _anchoCorrelativo = ConfigSelloFirma.anchoCorrelativo;
+	static const double _altoCorrelativo = ConfigSelloFirma.altoCorrelativo;
 	final TextEditingController _notaCtrl = TextEditingController();
 
 	// --- VARIABLES PARA EL NAVEGADOR DE PÁGINAS ---
@@ -35,13 +57,159 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 	void initState() {
 		super.initState();
 		_cargarNotas();
+		_verificarDocumento();
 	}
 
 	@override
 	void dispose() {
+		_correlativoCtrl.dispose();
 		_notaCtrl.dispose();
 		_paginaCtrl.dispose();
 		super.dispose();
+	}
+
+	Future<bool> _verificarSinFirma(Uint8List bytes) async {
+		final respuesta = await ApiService().verificar(pdfBytes: bytes, nombreArchivo: widget.archivo.nombre);
+		final firmas = respuesta['firmas'];
+		return respuesta['error'] == null && firmas is List && firmas.isEmpty;
+	}
+
+	Future<void> _verificarDocumento() async {
+		try {
+			final bytes = await File(widget.archivo.ruta).readAsBytes();
+			if (!mounted) return;
+			setState(() => _bytesVisor = bytes);
+			final sinFirma = await _verificarSinFirma(bytes);
+			if (!mounted) return;
+			setState(() {
+				_sinFirma = sinFirma;
+				_bytesVerificados = sinFirma ? bytes : null;
+			});
+		} catch (e) {
+			debugPrint('[Correlativo] No se pudo verificar: $e');
+			if (mounted) setState(() {
+				_sinFirma = false;
+				if (_bytesVisor == null) _errorVisor = 'No se pudo abrir el PDF: $e';
+			});
+		}
+	}
+
+	Offset _limitarCorrelativo(Offset pos, double ancho, double alto) {
+		return Offset(
+			pos.dx.clamp(0.0, math.max(0.0, 1 - _anchoCorrelativo / ancho)).toDouble(),
+			pos.dy.clamp(0.0, math.max(0.0, 1 - _altoCorrelativo / alto)).toDouble(),
+		);
+	}
+
+	void _alSoltarCorrelativo(DragTargetDetails<_ArrastreCorrelativo> details) {
+		if (!_sinFirma || _guardandoCorrelativo || !_pdfController.isReady) return;
+		final box = _stackKey.currentContext?.findRenderObject() as RenderBox?;
+		if (box == null) return;
+		final centro = details.offset + const Offset(_anchoCorrelativo / 2, _altoCorrelativo / 2);
+		final doc = MatrixUtils.transformPoint(Matrix4.inverted(_pdfController.value), box.globalToLocal(centro));
+		final layouts = _pdfController.layout.pageLayouts;
+		for (int i = 0; i < layouts.length; i++) {
+			final rect = layouts[i];
+			if (!rect.contains(doc)) continue;
+			setState(() {
+				_paginaCorrelativo = i + 1;
+				_posicionCorrelativo = _limitarCorrelativo(Offset((doc.dx - rect.left - _anchoCorrelativo / 2) / rect.width, (doc.dy - rect.top - _altoCorrelativo / 2) / rect.height), rect.width, rect.height);
+			});
+			break;
+		}
+	}
+
+	Widget _vistaCorrelativo() => CorrelativoVisual(texto: _correlativoCtrl.text, fuente: _fuenteCorrelativo, ancho: _anchoCorrelativo, alto: _altoCorrelativo);
+
+	Future<void> _guardarCorrelativo() async {
+		if (!_sinFirma || _guardandoCorrelativo || _posicionCorrelativo == null || _correlativoCtrl.text.trim().isEmpty) return;
+		final pos = _posicionCorrelativo!;
+		final pagina = _paginaCorrelativo;
+		final texto = _correlativoCtrl.text.trim();
+		final fuente = _fuenteCorrelativo;
+		setState(() => _guardandoCorrelativo = true);
+		File? temporal;
+		try {
+			final archivo = File(widget.archivo.ruta);
+			final bytes = await archivo.readAsBytes();
+			if (!listEquals(bytes, _bytesVerificados) || !await _verificarSinFirma(bytes)) {
+				if (mounted) setState(() { _sinFirma = false; _posicionCorrelativo = null; });
+				throw StateError('El documento cambió o contiene firmas. Vuelve a abrirlo.');
+			}
+			if (!mounted) return;
+			final documento = sf.PdfDocument(inputBytes: bytes);
+			late List<int> resultado;
+			try {
+				final page = documento.pages[pagina - 1];
+				final font = sf.PdfStandardFont(sf.PdfFontFamily.helvetica, fuente, style: sf.PdfFontStyle.bold);
+				final medida = font.measureString(texto);
+				if (medida.width > page.size.width || medida.height > page.size.height) throw StateError('El texto excede el tamaño de la página.');
+				final x = (pos.dx * page.size.width + _anchoCorrelativo / 2 - medida.width / 2).clamp(0.0, page.size.width - medida.width).toDouble();
+				final y = (pos.dy * page.size.height + _altoCorrelativo / 2 - 0.718 * fuente / 2).clamp(0.0, page.size.height - medida.height).toDouble();
+				page.graphics.drawString(texto, font, brush: sf.PdfSolidBrush(sf.PdfColor(0, 0, 0)), bounds: Rect.fromLTWH(x, y, 0, 0));
+				resultado = await documento.save();
+			} finally {
+				documento.dispose();
+			}
+			temporal = File('${archivo.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+			await temporal.writeAsBytes(resultado, flush: true);
+			if (!mounted) return;
+			if (!listEquals(await archivo.readAsBytes(), bytes)) throw StateError('El documento cambió durante el guardado.');
+			await temporal.rename(archivo.path);
+			if (!mounted) return;
+			setState(() {
+				_bytesVisor = Uint8List.fromList(resultado);
+				_bytesVerificados = _bytesVisor;
+				_posicionCorrelativo = null;
+				_correlativoCtrl.clear();
+				_pdfController = PdfViewerController();
+				_revisionPdf++;
+			});
+			ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Correlativo guardado en el PDF.')));
+		} catch (e) {
+			if (mounted) {
+				setState(() => _sinFirma = false);
+				ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo guardar: $e')));
+			}
+		} finally {
+			try { if (temporal != null && await temporal.exists()) await temporal.delete(); } catch (_) {}
+			if (mounted) setState(() => _guardandoCorrelativo = false);
+		}
+	}
+
+	Widget _tituloHerramienta(String titulo) {
+		return Padding(
+			padding: const EdgeInsets.all(16),
+			child: Text(titulo, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: context.textDark)),
+		);
+	}
+
+	Widget _divisorHerramientas() => Divider(height: 1, thickness: 1, color: context.borderColor);
+
+	Widget _herramientaCorrelativo() {
+		return Padding(
+			padding: const EdgeInsets.all(16),
+			child: Column(
+				children: [
+					Row(children: [
+						Expanded(child: Text('Tamaño de fuente', style: TextStyle(fontSize: 12, color: context.textGrey))),
+						IconButton(tooltip: 'Disminuir fuente', onPressed: _guardandoCorrelativo ? null : () => setState(() => _fuenteCorrelativo = (_fuenteCorrelativo - 2).clamp(8.0, 30.0).toDouble()), icon: const Icon(Icons.keyboard_arrow_down)),
+						Text(_fuenteCorrelativo.toStringAsFixed(0), style: TextStyle(color: context.textDark, fontWeight: FontWeight.w600)),
+						IconButton(tooltip: 'Aumentar fuente', onPressed: _guardandoCorrelativo ? null : () => setState(() => _fuenteCorrelativo = (_fuenteCorrelativo + 2).clamp(8.0, 30.0).toDouble()), icon: const Icon(Icons.keyboard_arrow_up)),
+						IconButton(tooltip: 'Quitar correlativo pendiente', onPressed: _guardandoCorrelativo ? null : () => setState(() { _correlativoCtrl.clear(); _posicionCorrelativo = null; }), icon: const Icon(Icons.close)),
+					]),
+					const SizedBox(height: 8),
+					TextField(controller: _correlativoCtrl, enabled: !_guardandoCorrelativo, decoration: const InputDecoration(hintText: 'Correlativo', border: OutlineInputBorder(), isDense: true), onChanged: (v) => setState(() { if (v.trim().isEmpty) _posicionCorrelativo = null; })),
+					if (_correlativoCtrl.text.trim().isNotEmpty) ...[
+						const SizedBox(height: 8),
+						Draggable<_ArrastreCorrelativo>(data: const _ArrastreCorrelativo(), maxSimultaneousDrags: _guardandoCorrelativo ? 0 : 1, dragAnchorStrategy: (_, __, ___) => const Offset(_anchoCorrelativo / 2, _altoCorrelativo / 2), feedback: Material(color: Colors.transparent, child: _vistaCorrelativo()), child: _vistaCorrelativo()),
+						Text('Arrastra al PDF', style: TextStyle(fontSize: 12, color: context.textGrey)),
+					],
+					const SizedBox(height: 8),
+					TextButton.icon(onPressed: _guardandoCorrelativo || _posicionCorrelativo == null ? null : _guardarCorrelativo, icon: const Icon(Icons.save_outlined), label: Text(_guardandoCorrelativo ? 'Guardando...' : 'Guardar correlativo')),
+				],
+			),
+		);
 	}
 
 	Future<void> _cargarNotas() async {
@@ -204,8 +372,8 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 									// --- BOTÓN DE NOTAS ---
 									TextButton.icon(
 										onPressed: () => setState(() => _mostrarBarra = !_mostrarBarra),
-										icon: const Icon(Icons.sticky_note_2_outlined, size: 20),
-										label: const Text('Notas'),
+										icon: const Icon(Icons.build_outlined, size: 20),
+										label: const Text('Herramientas'),
 										style: TextButton.styleFrom(
 											foregroundColor: _mostrarBarra ? Colors.white : context.primaryPurple,
 											backgroundColor: _mostrarBarra ? context.primaryPurple : Colors.transparent,
@@ -216,7 +384,7 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 									const SizedBox(width: 8),
 									IconButton(
 										tooltip: 'Cerrar',
-										onPressed: () => Navigator.pop(context),
+										onPressed: _guardandoCorrelativo ? null : () => Navigator.pop(context),
 										icon: const Icon(Icons.close_rounded),
 									),
 								],
@@ -233,8 +401,13 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 										child: Stack(
 											key: _stackKey,
 											children: [
-												PdfViewer.file(
-													widget.archivo.ruta,
+												if (_bytesVisor == null)
+													Center(child: _errorVisor == null ? const CircularProgressIndicator() : Text(_errorVisor!))
+												else
+												PdfViewer.data(
+													_bytesVisor!,
+													sourceName: '${widget.archivo.ruta}#$_revisionPdf',
+													key: ValueKey(_revisionPdf),
 													controller: _pdfController,
 													params: PdfViewerParams(
 														onViewerReady: (document, controller) {
@@ -250,7 +423,7 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 														},
 														pageOverlaysBuilder: (context, pageRect, page) {
 															final notasPagina = _notas.where((n) => n.pagina == page.pageNumber).toList();
-															return notasPagina.map((nota) {
+															final overlays = <Widget>[...notasPagina.map((nota) {
 																return Positioned(
 																	left: nota.x * pageRect.width,
 																	top: nota.y * pageRect.height,
@@ -269,7 +442,12 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 																		),
 																	),
 																);
-															}).toList();
+															}).toList()];
+															if (_sinFirma && _posicionCorrelativo != null && page.pageNumber == _paginaCorrelativo) {
+																final escala = pageRect.width / page.width;
+																overlays.add(Positioned(left: _posicionCorrelativo!.dx * pageRect.width, top: _posicionCorrelativo!.dy * pageRect.height, width: _anchoCorrelativo * escala, height: _altoCorrelativo * escala, child: GestureDetector(onPanUpdate: _guardandoCorrelativo ? null : (d) => setState(() => _posicionCorrelativo = _limitarCorrelativo(_posicionCorrelativo! + Offset(d.delta.dx / pageRect.width, d.delta.dy / pageRect.height), page.width, page.height)), child: FittedBox(fit: BoxFit.fill, child: _vistaCorrelativo()))));
+															}
+															return overlays;
 														},
 													),
 												),
@@ -405,6 +583,8 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 													),
 												),
 												
+														if (_sinFirma)
+															Positioned.fill(child: DragTarget<_ArrastreCorrelativo>(onAcceptWithDetails: _alSoltarCorrelativo, builder: (_, __, ___) => const IgnorePointer(child: SizedBox.expand()))),
 												Positioned.fill(
 													child: DragTarget<Nota>(
 														onAcceptWithDetails: _alSoltarNota,
@@ -430,15 +610,17 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 													color: context.surfaceWhite,
 													border: Border(left: BorderSide(color: context.borderColor)),
 												),
-												child: Column(
-													mainAxisAlignment: MainAxisAlignment.start,
+												child: ListView(
 													children: [
-														Padding(
-															padding: const EdgeInsets.all(16),
-															child: Text('Notas del documento', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: context.textDark)),
-														),
-														const Divider(height: 1),
-														
+														if (_sinFirma) ...[
+															_tituloHerramienta('Correlativo'),
+															_divisorHerramientas(),
+															_herramientaCorrelativo(),
+															_divisorHerramientas(),
+														],
+														_tituloHerramienta('Notas del documento'),
+														_divisorHerramientas(),
+
 														// Input para nueva nota
 														Padding(
 															padding: const EdgeInsets.all(16),
@@ -512,13 +694,18 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 															),
 														),
 														
-														const Divider(height: 1),
+														
 														
 														// Lista de notas
-														Expanded(
-															child: _notas.isEmpty
-																? Center(child: Text('No hay notas', style: TextStyle(color: context.textGrey)))
+														Padding(
+															padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+															child: Text('Notas guardadas', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: context.textDark)),
+														),
+														_notas.isEmpty
+																? Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 16), child: Center(child: Text('No hay notas', style: TextStyle(color: context.textGrey))))
 																: ListView.builder(
+																	shrinkWrap: true,
+																	physics: const NeverScrollableScrollPhysics(),
 																	padding: const EdgeInsets.all(8),
 																	itemCount: _notas.length,
 																	itemBuilder: (context, index) {
@@ -535,17 +722,16 @@ class _VisorPdfNotasDialogState extends State<VisorPdfNotasDialog> {
 																					overflow: TextOverflow.ellipsis,
 																					style: const TextStyle(fontSize: 12),
 																				),
-																				// trailing: IconButton(
-																				// 	icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-																				// 	onPressed: () => _ocultarNota(nota),
-																				// 	constraints: const BoxConstraints(),
-																				// 	padding: EdgeInsets.zero,
-																				// ),
+																				trailing: IconButton(
+																					icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+																					onPressed: () => _ocultarNota(nota),
+																					constraints: const BoxConstraints(),
+																					padding: EdgeInsets.zero,
+																				),
 																			),
 																		);
 																	},
 																),
-														),
 													],
 												),
 											),

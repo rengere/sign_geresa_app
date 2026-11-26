@@ -34,7 +34,7 @@ class ArchivosService {
 			nombre: nombre,
 			fecha: stat.modified,
 			tamano: stat.size,
-			tieneNotas: listaNotas is List && listaNotas.isNotEmpty,
+			tieneNotas: listaNotas is List && listaNotas.any((nota) => nota is Map && nota['oculta'] != true),
 			esCompartido: esCompartido,
 		);
 	}
