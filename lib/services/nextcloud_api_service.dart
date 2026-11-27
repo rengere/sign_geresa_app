@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:firmador_geresa/data/nxc_access.dart';
 
 class NextcloudApiService {
+	static const String rutaReferenciales = '/GERESA_FIRMA/DocReferenciales';
 	static const String _baseUrl = 'https://cloud.diresacusco.gob.pe';
 
 	static String _normalizarRemota(String rutaRemota) {
@@ -105,12 +107,40 @@ class NextcloudApiService {
 	}
 
 	static Future<void> eliminarCarpeta(String ruta) async {
-		if (!_normalizarRemota(ruta).split('/').last.startsWith('@')) {
+		final normalizada = _normalizarRemota(ruta);
+		if (!normalizada.startsWith('$rutaReferenciales/') || normalizada.split('/').length != 4) {
 			throw ArgumentError('No es una carpeta de anexos');
 		}
-		final response = await http.delete(_urlWebDav(ruta), headers: {'Authorization': _autorizacion});
+		if (!await carpetaVacia(ruta)) throw StateError('La carpeta remota contiene archivos o no se pudo comprobar.');
+		final response = await http.delete(_urlWebDav(ruta), headers: {'Authorization': _autorizacion}).timeout(const Duration(seconds: 60));
 		if (![200, 204, 404].contains(response.statusCode)) {
 			throw StateError('Error eliminando carpeta: ${response.statusCode}');
+		}
+	}
+	// Comprueba la carpeta antes de permitir su eliminación.
+	static Future<bool> carpetaVacia(String ruta) async {
+		final request = http.Request('PROPFIND', _urlWebDav(ruta));
+		request.headers.addAll({'Authorization': _autorizacion, 'Depth': '1'});
+		final response = await http.Response.fromStream(await request.send()).timeout(const Duration(seconds: 60));
+		if (response.statusCode == 404) return true;
+		if (response.statusCode != 207) throw StateError('PROPFIND: ${response.statusCode}');
+		return RegExp(r'<(?:[\w.-]+:)?response(?:\s[^>]*)?>').allMatches(response.body).length == 1;
+	}
+
+	// PUT exclusivo; un reintento solo acepta un archivo idéntico.
+	static Future<void> subirArchivo(String ruta, Uint8List bytes) async {
+		final url = _urlWebDav(ruta);
+		final response = await http.put(url, headers: {
+			'Authorization': _autorizacion,
+			'Content-Type': 'application/octet-stream',
+			'If-None-Match': '*',
+		}, body: bytes).timeout(const Duration(minutes: 10));
+		if (![200, 201, 204, 412].contains(response.statusCode)) {
+			throw StateError('PUT: ${response.statusCode} ($ruta)');
+		}
+		final comprobacion = await http.get(url, headers: {'Authorization': _autorizacion}).timeout(const Duration(minutes: 10));
+		if (comprobacion.statusCode != 200 || !listEquals(comprobacion.bodyBytes, bytes)) {
+			throw StateError('No se pudo verificar el contenido remoto: $ruta');
 		}
 	}
 }
