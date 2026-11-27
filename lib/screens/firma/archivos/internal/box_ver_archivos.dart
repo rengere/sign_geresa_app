@@ -8,6 +8,7 @@ import 'package:firmador_geresa/assets/theme/app_theme.dart';
 import 'package:firmador_geresa/screens/firma/firmar/editor/editor_firma_modal.dart';
 import 'package:firmador_geresa/screens/firma/firmar/popup_firma.dart';
 import 'package:firmador_geresa/services/api_service.dart';
+import 'package:firmador_geresa/services/anexos_service.dart';
 import 'package:flutter/material.dart';
 import 'package:firmador_geresa/assets/tools/files_manag/folder_path_nxc.dart';
 import 'package:firmador_geresa/data/rutas_carpetas_docs.dart';
@@ -243,6 +244,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 	}
 
 	Future<void> _firmarDocumentoProyectado(ArchivoPdf archivo) async {
+		bool cargaAbierta = false;
 		try {
 			final bytes = await File(archivo.ruta).readAsBytes();
 
@@ -252,7 +254,10 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 
 			// --- MOSTRAR MODAL DE CARGA ---
 			final mensajeCarga = ValueNotifier<String>('Leyendo DNIe...');
-			if (mounted) _mostrarCarga(context, mensajeCarga);
+			if (mounted) {
+				_mostrarCarga(context, mensajeCarga);
+				cargaAbierta = true;
+			}
 
 			while (intentos < 5) {
 				try {
@@ -268,6 +273,7 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 			// --- CERRAR MODAL DE CARGA ---
 			if (mounted) {
 				Navigator.of(context, rootNavigator: true).pop();
+				cargaAbierta = false;
 			}
 
 			if (!mounted) return;
@@ -307,7 +313,10 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 					builder: (_) => PopupFirma(
 						pdfBytes: pdfProcesado,
 						nombreArchivo: archivo.nombre,
-						rutaDestinoFinal: rutaFirmados, // <-- ENVIAR A FIRMADOS
+						rutaDestinoFinal: (resultadoEditor['sesionAnexos'] as SesionAnexos?)?.destino ?? rutaFirmados,
+						sesionAnexos: resultadoEditor['sesionAnexos'] as SesionAnexos?,
+						anexosPendientes: (resultadoEditor['anexosPendientes'] as List?)?.cast<File>() ?? <File>[],
+						alGuardarFirma: () => _service.marcarFirmado(archivo),
 						esVistoBueno: false,
 						imagenSello: resultadoEditor['imagenSello'],
 						pagina: resultadoEditor['pagina'],
@@ -339,8 +348,8 @@ class _BoxVerArchivosState extends State<BoxVerArchivos> {
 			if (mounted) await _cargar();
 
 		} catch (e) {
-			// Si hay un error, nos aseguramos de cerrar el modal de carga si está abierto
-			if (mounted) {
+			// Cerrar únicamente el modal de carga, si sigue abierto.
+			if (mounted && cargaAbierta) {
 				Navigator.of(context, rootNavigator: true).pop();
 			}
 			if (!mounted) return;

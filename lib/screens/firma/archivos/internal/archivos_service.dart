@@ -10,6 +10,7 @@ enum OpcionCompartir { whatsapp, correo, carpeta }
 
 class ArchivosService {
 	static const String prefijoEliminado = '[DELETE]';
+	static const String prefijoFirmado = '[SIGN]';
 
 	String get _sep => Platform.pathSeparator;
 
@@ -49,7 +50,7 @@ class ArchivosService {
 		final resultado = <ArchivoPdf>[];
 		await for (final entidad in dir.list(followLinks: false)) {
 			final nombre = p.basename(entidad.path);
-			if (nombre.startsWith(prefijoEliminado)) continue;
+			if (nombre.startsWith(prefijoEliminado) || nombre.startsWith(prefijoFirmado)) continue;
 			if (entidad is File && nombre.toLowerCase().endsWith('.pdf')) {
 				resultado.add(await _crearArchivoPdf(entidad, notasRaiz));
 			} else if (entidad is Directory && nombre.startsWith('@') && nombre.length > 1) {
@@ -92,6 +93,17 @@ class ArchivosService {
 			nuevo = '$prefijoEliminado${DateTime.now().millisecondsSinceEpoch}_${archivo.nombre}';
 		}
 		await File(archivo.ruta).rename('${archivo.carpeta}$_sep$nuevo');
+	}
+
+	Future<void> marcarFirmado(ArchivoPdf archivo) async {
+		final origen = File(archivo.ruta);
+		if (archivo.nombre.startsWith(prefijoFirmado)) return;
+		var destino = p.join(archivo.carpeta, '$prefijoFirmado${archivo.nombre}');
+		var i = 1;
+		while (await FileSystemEntity.type(destino) != FileSystemEntityType.notFound) {
+			destino = p.join(archivo.carpeta, '$prefijoFirmado${i++}_${archivo.nombre}');
+		}
+		await origen.rename(destino);
 	}
 
 	Future<void> suprimir(ArchivoPdf archivo) async {

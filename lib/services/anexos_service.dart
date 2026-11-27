@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:firmador_geresa/services/nextcloud_api_service.dart';
+import 'package:firmador_geresa/services/correlativo_ref_service.dart';
 
 class SesionAnexos {
 	final String nombrePdf;
@@ -21,7 +22,8 @@ class AnexosService {
 			final ahora = inicio.add(Duration(seconds: i));
 			String dos(int n) => n.toString().padLeft(2, '0');
 			final marca = '${dos(ahora.day)}-${dos(ahora.month)}-${ahora.year}_${dos(ahora.hour)}-${dos(ahora.minute)}-${dos(ahora.second)}';
-			final carpeta = '${base}_$marca';
+			final identificador = await CorrelativoRefService.reservar();
+			final carpeta = '${base}_$marca$identificador';
 			final nombrePdf = '$carpeta.pdf';
 			final remota = '${NextcloudApiService.rutaReferenciales}/$carpeta';
 			if (await NextcloudApiService.reservarCarpeta(remota)) {

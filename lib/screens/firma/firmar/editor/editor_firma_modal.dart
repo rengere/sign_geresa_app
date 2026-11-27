@@ -206,33 +206,17 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 	}
 
 	void _cargarConfiguracionFirma() {
-		final motivosFirmaExtra = (JsonStorage.getJson('firma_motivos_extra') as List?)?.whereType<String>().toList() ?? [];
-
-		_motivosFirmaDisponibles = {
-			...motivosFirmaPred,
-			...motivosFirmaExtra,
-		}.map((m) => m.trim()).where((m) => m.isNotEmpty).toSet().toList();
-
+		final motivosFirmaExtra = (JsonStorage.getJson('firma_motivos_extra') as List?)?.cast<String>() ?? [];
+		_motivosFirmaDisponibles = [...motivosFirmaPred, ...motivosFirmaExtra];
 		_cargosDisponibles = (JsonStorage.getJson('firma_cargos') as List?)?.cast<String>() ?? [];
-
-		final motivosVbExtra = (JsonStorage.getJson('vb_motivos_extra') as List?)?.whereType<String>().toList() ?? [];
-
-		_motivosVbDisponibles = {
-			...motivosVistoBuenoPred,
-			...motivosVbExtra,
-		}.map((m) => m.trim()).where((m) => m.isNotEmpty).toSet().toList();
+		final motivosVbExtra = (JsonStorage.getJson('vb_motivos_extra') as List?)?.cast<String>() ?? [];
+		_motivosVbDisponibles = [...motivosVistoBuenoPred, ...motivosVbExtra];
 
 		final firmaActiva = JsonStorage.getString('firma_motivo_activo');
-
-		_motivoSeleccionado = (firmaActiva != null && _motivosFirmaDisponibles.contains(firmaActiva))
-			? firmaActiva
-			: (_motivosFirmaDisponibles.isNotEmpty ? _motivosFirmaDisponibles.first : '');
+		_motivoSeleccionado = (firmaActiva != null && _motivosFirmaDisponibles.contains(firmaActiva)) ? firmaActiva : (_motivosFirmaDisponibles.isNotEmpty ? _motivosFirmaDisponibles.first : '');
 
 		final cargoActivo = JsonStorage.getString('firma_cargo_activo');
-
-		_cargoSeleccionado = (cargoActivo != null && _cargosDisponibles.contains(cargoActivo))
-			? cargoActivo
-			: (_cargosDisponibles.isNotEmpty ? _cargosDisponibles.first : null);
+		_cargoSeleccionado = (cargoActivo != null && _cargosDisponibles.contains(cargoActivo)) ? cargoActivo : (_cargosDisponibles.isNotEmpty ? _cargosDisponibles.first : null);
 
 		_direccionOficina = JsonStorage.getString('firma_direccion_oficina') ?? '';
 
@@ -381,43 +365,51 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		if (_procesando || _documentoYaFirmado || _cargandoAnexos) return;
 		setState(() => _panelLateral = _PanelLateral.anexos);
 		if (_reinicioPendiente || _urlAnexos != null) return;
-		setState(() => _cargandoAnexos = true);
+		await _prepararAnexosEnParalelo(abrirSelector: _sesionAnexos == null && _anexosPendientes.isEmpty);
+	}
+
+	Future<void> _agregarAnexos() async {
+		if (_procesando || _documentoYaFirmado || _cargandoAnexos || _reinicioPendiente) return;
+		await _prepararAnexosEnParalelo(abrirSelector: true);
+	}
+
+	Future<void> _prepararAnexosEnParalelo({required bool abrirSelector}) async {
+		setState(() {
+			_cargandoAnexos = true;
+			_panelLateral = _PanelLateral.anexos;
+		});
 		try {
-			if (_urlAnexos == null && !_preparandoEnlace) {
-				_preparandoEnlace = true;
-				try {
-					final rutaBase = obtenerRutaNextcloud();
-					final carpetaDestino = _esModoVistoBueno ? '$rutaBase$proyectados' : '$rutaBase$firmados';
-					_sesionAnexos ??= await AnexosService.reservarSesion(carpetaDestino, widget.nombreArchivo);
-					await AnexosService.prepararSesion(_sesionAnexos!);
-					final url = _sesionAnexos!.url;
-					if (!mounted) return;
-					if (url == null) throw StateError('No se pudo generar el enlace público de anexos.');
-					setState(() {
-						_urlAnexos = url;
-						_posicionQr ??= const Offset(0.1, 0.1);
-					});
-				} finally {
-					_preparandoEnlace = false;
-				}
-			}
-		} catch (e) {
-			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al crear enlace: $e')));
+			await Future.wait<void>([
+				if (abrirSelector) _seleccionarArchivosAnexos(),
+				if (_urlAnexos == null) _prepararEnlaceAnexos(),
+			]);
 		} finally {
 			if (mounted) setState(() => _cargandoAnexos = false);
 		}
 	}
 
-	Future<void> _agregarAnexos() async {
-		if (_documentoYaFirmado || _cargandoAnexos || _reinicioPendiente) return;
-		if (_urlAnexos == null) {
-			await _abrirAnexos();
-			if (!mounted || _urlAnexos == null) return;
+	Future<void> _prepararEnlaceAnexos() async {
+		_preparandoEnlace = true;
+		try {
+			final rutaBase = obtenerRutaNextcloud();
+			final carpetaDestino = _esModoVistoBueno ? '$rutaBase$proyectados' : '$rutaBase$firmados';
+			_sesionAnexos ??= await AnexosService.reservarSesion(carpetaDestino, widget.nombreArchivo);
+			await AnexosService.prepararSesion(_sesionAnexos!);
+			final url = _sesionAnexos!.url;
+			if (!mounted) return;
+			if (url == null) throw StateError('No se pudo generar el enlace público de anexos.');
+			setState(() {
+				_urlAnexos = url;
+				_posicionQr ??= const Offset(0.1, 0.1);
+			});
+		} catch (e) {
+			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al crear enlace: $e')));
+		} finally {
+			_preparandoEnlace = false;
 		}
-		setState(() {
-			_cargandoAnexos = true;
-			_panelLateral = _PanelLateral.anexos;
-		});
+	}
+
+	Future<void> _seleccionarArchivosAnexos() async {
 		try {
 			final result = await FilePicker.platform.pickFiles(allowMultiple: true, type: FileType.custom, allowedExtensions: ['pdf']);
 			if (result == null) return;
@@ -439,8 +431,6 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 		} catch (e) {
 			debugPrint('[Anexos] Error: $e');
 			if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al añadir anexos: $e')));
-		} finally {
-			if (mounted) setState(() => _cargandoAnexos = false);
 		}
 	}
 
@@ -1226,9 +1216,9 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 																// ),
 																// const SizedBox(width: 16),
 																FloatingActionButton(
-																	// ======================================================
+																			// ======================================================
 																	// BOTÓN ANEXOS: NO COMENTAR AÚN
-																	// ======================================================
+																// ======================================================
 																	heroTag: 'btn_anexos',
 																	onPressed: (_procesando || _cargandoAnexos || _documentoYaFirmado) ? null : _abrirAnexos,
 																	backgroundColor: context.primaryPurple,
@@ -1481,7 +1471,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 										mainAxisSize: MainAxisSize.min,
 										children: [
 											ElevatedButton(
-												onPressed: (_procesando || (_esModoVistoBueno ? !_hayVb : _posicionPorcentual == null) || (!_esModoVistoBueno && !_hardwareDisponible) || ((_sesionAnexos != null || _anexosPendientes.isNotEmpty) && _urlAnexos == null) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
+												onPressed: (_procesando || _cargandoAnexos || _reinicioPendiente || (_esModoVistoBueno ? !_hayVb : _posicionPorcentual == null) || (!_esModoVistoBueno && !_hardwareDisponible) || ((_sesionAnexos != null || _anexosPendientes.isNotEmpty) && _urlAnexos == null) || (_urlAnexos != null && _posicionQr == null)) ? null : _confirmar,
 												style: ElevatedButton.styleFrom(backgroundColor: context.primaryPurple, foregroundColor: Colors.white, elevation: 0, minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(context.radiusPill))),
 												child: _procesando
 														? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
@@ -1494,7 +1484,7 @@ class _EditorFirmaModalState extends State<EditorFirmaModal> {
 															),
 											),
 											const SizedBox(height: 8),
-											TextButton(onPressed: () => Navigator.of(context).pop(null), style: TextButton.styleFrom(foregroundColor: context.textGrey, minimumSize: const Size.fromHeight(40)), child: const Text('Cancelar')),
+											TextButton(onPressed: _cargandoAnexos ? null : () => Navigator.of(context).pop(null), style: TextButton.styleFrom(foregroundColor: context.textGrey, minimumSize: const Size.fromHeight(40)), child: const Text('Cancelar')),
 										],
 									),
 								),

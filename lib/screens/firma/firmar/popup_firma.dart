@@ -14,6 +14,7 @@ class PopupFirma extends StatefulWidget {
 	final String nombreArchivo;
 	final String? rutaDestinoFinal; // Ruta final (Firmados o Proyectados)
 	final bool esVistoBueno;
+	final Future<void> Function()? alGuardarFirma;
 	final List<File> anexosPendientes;
 	final SesionAnexos? sesionAnexos;
 
@@ -30,6 +31,7 @@ class PopupFirma extends StatefulWidget {
 		required this.nombreArchivo,
 		this.rutaDestinoFinal, // <-- Solo el destino
 		this.esVistoBueno = false,
+		this.alGuardarFirma,
 		this.anexosPendientes = const [],
 		this.sesionAnexos,
 		this.imagenSello,
@@ -53,6 +55,7 @@ class _PopupFirmaState extends State<PopupFirma> {
 	late _EstadoDialogoFirma _estado;
 	String? _mensajeError;
 	Uint8List? _pdfFirmado;
+	bool _guardadoCompletado = false;
 
 	@override
 	void initState() {
@@ -71,8 +74,14 @@ class _PopupFirmaState extends State<PopupFirma> {
 
 	Future<void> _finalizarGuardado() async {
 		try {
-			await _guardarCopia(_pdfFirmado!);
-			await _transferirAnexos();
+			if (!_guardadoCompletado) {
+				await _guardarCopia(_pdfFirmado!);
+				await _transferirAnexos();
+				_guardadoCompletado = true;
+			}
+			if (!widget.esVistoBueno && widget.alGuardarFirma != null) {
+				await widget.alGuardarFirma!();
+			}
 			if (mounted) setState(() => _estado = _EstadoDialogoFirma.exito);
 		} catch (e) {
 			if (mounted) setState(() {
@@ -98,7 +107,7 @@ class _PopupFirmaState extends State<PopupFirma> {
 		final nombreBackup = widget.sesionAnexos?.nombrePdf ?? '${nombreBase}_$timestamp.pdf';
 		final carpetaDestino = widget.rutaDestinoFinal;
 		if (carpetaDestino == null || carpetaDestino.isEmpty) {
-			if (widget.sesionAnexos != null) throw StateError('No hay destino local para el PDF principal.');
+			if (widget.sesionAnexos != null || widget.alGuardarFirma != null) throw StateError('No hay destino local para el PDF principal.');
 			return;
 		}
 		final destino = File('$carpetaDestino${Platform.pathSeparator}$nombreBackup');
@@ -116,12 +125,12 @@ class _PopupFirmaState extends State<PopupFirma> {
 					rethrow;
 				}
 			} else {
-				await destino.writeAsBytes(bytes);
+				await destino.writeAsBytes(bytes, flush: true);
 			}
 			debugPrint('[Firmar] Copia guardada en: ${destino.path}');
 		} catch (e) {
 			debugPrint('[Firmar] Error al guardar copia: $e');
-			if (widget.sesionAnexos != null) rethrow;
+			if (widget.sesionAnexos != null || widget.alGuardarFirma != null) rethrow;
 		}
 	}
 

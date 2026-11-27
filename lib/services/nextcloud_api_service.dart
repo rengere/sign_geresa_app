@@ -32,6 +32,22 @@ class NextcloudApiService {
 	static String get _autorizacion =>
 		'Basic ${base64Encode(utf8.encode('$userNxc:$passNxc'))}';
 
+	static Future<http.Response> leerCorrelativos() async {
+		return http.get(_urlWebDav('$rutaReferenciales/.cor.json'), headers: {
+			'Authorization': _autorizacion,
+			'Cache-Control': 'no-cache',
+		}).timeout(const Duration(seconds: 30));
+	}
+
+	static Future<int> escribirCorrelativos(Map<String, dynamic> datos, {String? etag}) async {
+		final respuesta = await http.put(_urlWebDav('$rutaReferenciales/.cor.json'), headers: {
+			'Authorization': _autorizacion,
+			'Content-Type': 'application/json; charset=utf-8',
+			if (etag == null) 'If-None-Match': '*' else 'If-Match': etag,
+		}, body: utf8.encode(jsonEncode(datos))).timeout(const Duration(seconds: 30));
+		return respuesta.statusCode;
+	}
+
 	static Future<bool> crearCarpeta(String rutaRemota) async {
 		final url = _urlWebDav(rutaRemota);
 		debugPrint('DEBUG NEXTCLOUD - MKCOL URL: $url');
